@@ -20,9 +20,7 @@ function ensureCacheForRegistry(registry: PluginRegistry | null) {
 export async function loadChannelOutboundAdapter(
   id: ChannelId,
 ): Promise<ChannelOutboundAdapter | undefined> {
-  // WeCom outbound is disabled for now - AI should not use message tool for wecom
-  // Messages are sent through kf-monitor.ts directly
-  // TODO: Enable when wecom outbound is more stable
+  // WeCom outbound - disabled, AI doesn't use it correctly yet
   // if (id === "wecom" || id === "wecom-kf") {
   //   return wecomOutbound;
   // }

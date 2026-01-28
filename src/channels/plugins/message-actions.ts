@@ -37,9 +37,7 @@ export function supportsChannelMessageCards(cfg: ClawdbotConfig): boolean {
 export async function dispatchChannelMessageAction(
   ctx: ChannelMessageActionContext,
 ): Promise<AgentToolResult<unknown> | null> {
-  // WeCom message actions are disabled for now - AI should not use message tool for wecom
-  // Messages are sent through kf-monitor.ts directly
-  // TODO: Enable when wecom outbound is more stable
+  // WeCom message actions - disabled, AI doesn't use it correctly yet
   // if (ctx.channel === "wecom" || ctx.channel === "wecom-kf") {
   //   const actions = wecomMessageActions.listActions?.({ cfg: ctx.cfg }) ?? [];
   //   if (actions.includes(ctx.action as ChannelMessageActionName)) {
