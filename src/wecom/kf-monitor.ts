@@ -21,6 +21,69 @@ const log = createSubsystemLogger("gateway/channels/wecom-kf");
 import type { WeComCredentials } from "./token.js";
 
 /**
+ * 智能分段文本，按段落/句子拆分，模拟人类打字发送
+ */
+function splitTextIntoSegments(text: string): string[] {
+  // 先按双换行（段落）分
+  let segments = text.split(/\n\n+/).filter(Boolean);
+
+  // 如果只有一段且较长，按单换行分
+  if (segments.length === 1 && segments[0].length > 200) {
+    segments = text.split(/\n/).filter(Boolean);
+  }
+
+  // 如果还是只有一段且较长，按句子分（中英文标点）
+  if (segments.length === 1 && segments[0].length > 300) {
+    segments = text.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
+  }
+
+  // 合并太短的片段
+  const merged: string[] = [];
+  let buffer = "";
+
+  for (const seg of segments) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+
+    if (buffer) {
+      buffer += "\n" + trimmed;
+      if (buffer.length >= 30) {
+        merged.push(buffer);
+        buffer = "";
+      }
+    } else if (trimmed.length < 15 && merged.length > 0) {
+      // 太短的片段合并到上一段
+      merged[merged.length - 1] += "\n" + trimmed;
+    } else if (trimmed.length < 15) {
+      buffer = trimmed;
+    } else {
+      merged.push(trimmed);
+    }
+  }
+
+  // 处理剩余的 buffer
+  if (buffer) {
+    if (merged.length > 0) {
+      merged[merged.length - 1] += "\n" + buffer;
+    } else {
+      merged.push(buffer);
+    }
+  }
+
+  // 限制最多 8 段
+  if (merged.length > 8) {
+    const result: string[] = [];
+    const perChunk = Math.ceil(merged.length / 8);
+    for (let i = 0; i < merged.length; i += perChunk) {
+      result.push(merged.slice(i, i + perChunk).join("\n\n"));
+    }
+    return result;
+  }
+
+  return merged.length > 0 ? merged : [text];
+}
+
+/**
  * 发送 ReplyPayload 到微信客服
  */
 async function sendReplyPayload(params: {
@@ -46,15 +109,27 @@ async function sendReplyPayload(params: {
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
-  // 发送文本
+  // 发送文本（分段发送，模拟人类打字）
   if (payload.text) {
-    log.info(`发送文本回复 to=${toUser} length=${payload.text.length}`);
-    await sendWeComKfMessage({
-      credentials,
-      toUser,
-      openKfid,
-      content: payload.text,
-    });
+    const segments = splitTextIntoSegments(payload.text);
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      log.info(`发送文本回复 [${i + 1}/${segments.length}] to=${toUser} length=${segment.length}`);
+
+      await sendWeComKfMessage({
+        credentials,
+        toUser,
+        openKfid,
+        content: segment,
+      });
+
+      // 段落之间添加延迟，模拟打字效果
+      if (i < segments.length - 1) {
+        const delay = Math.min(500 + segment.length * 15, 3000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
 }
 
