@@ -21,6 +21,24 @@ import type {
 
 export function createEmbeddedPiSessionEventHandler(ctx: EmbeddedPiSubscribeContext) {
   return (evt: EmbeddedPiSubscribeEvent) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        location: "pi-embedded-subscribe.handlers.ts:eventHandler",
+        message: "Event received",
+        data: {
+          evtType: evt.type,
+          evtKeys: Object.keys(evt),
+          evtPreview: JSON.stringify(evt)?.slice(0, 600),
+        },
+        timestamp: Date.now(),
+        sessionId: "debug-session",
+        hypothesisId: "F",
+      }),
+    }).catch(() => {});
+    // #endregion
     switch (evt.type) {
       case "message_start":
         handleMessageStart(ctx, evt as never);

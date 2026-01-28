@@ -260,7 +260,8 @@ export async function waitForWebLogin(
         runtime.log(danger(message));
         return { connected: false, message };
       }
-      if (login.errorStatus === 515) {
+      // 515 = DisconnectReason.restartRequired
+      if (login.errorStatus === 515 || login.errorStatus === DisconnectReason.restartRequired) {
         const restarted = await restartLoginSocket(login, runtime);
         if (restarted && isLoginFresh(login)) {
           continue;

@@ -1,0 +1,91 @@
+/* ===========================================
+   NoWorries 棱镜澄明 - macOS 窗口控制按钮
+   =========================================== */
+
+/* macOS 窗口控制按钮容器 */
+.window-controls {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px;
+  margin-bottom: 16px;
+}
+
+/* 拖拽区域 - Electron frameless window */
+.window-controls.drag-region {
+  -webkit-app-region: drag;
+}
+
+/* 控制按钮基础样式 */
+.control-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: opacity 0.3s;
+  -webkit-app-region: no-drag;
+}
+
+/* 颜色定义 */
+.control-btn.close {
+  background: #ff5f57;
+}
+
+.control-btn.minimize {
+  background: #febc2e;
+}
+
+.control-btn.maximize {
+  background: #28c840;
+}
+
+/* 悬停效果 */
+.control-btn:hover {
+  opacity: 0.8;
+}
+
+/* 非活动窗口状态 */
+.window-controls.inactive .control-btn {
+  background: var(--slate-300, #cbd5e1);
+}
+
+/* 深色主题下的非活动状态 */
+:root:not([data-theme="light"]) .window-controls.inactive .control-btn {
+  background: var(--border);
+}
+
+/* 隐藏窗口控制按钮（非 macOS 或非 Electron） */
+.window-controls.hidden {
+  display: none;
+}
+
+/* 设置按钮 */
+.btn-settings {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 10px;
+  transition: all 0.3s;
+}
+
+.btn-settings:hover {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--text-strong);
+}
+
+:root:not([data-theme="light"]) .btn-settings:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-settings svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5px;
+}

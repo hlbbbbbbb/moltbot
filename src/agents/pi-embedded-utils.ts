@@ -177,14 +177,53 @@ export function extractAssistantText(msg: AssistantMessage): string {
     return rec.type === "text" && typeof rec.text === "string";
   };
 
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "pi-embedded-utils.ts:extractAssistantText:entry",
+      message: "extractAssistantText called",
+      data: {
+        contentType: Array.isArray(msg.content) ? "array" : typeof msg.content,
+        contentLength: Array.isArray(msg.content) ? msg.content.length : 0,
+        rawContent: JSON.stringify(msg.content)?.slice(0, 800),
+      },
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: "D",
+    }),
+  }).catch(() => {});
+  // #endregion
+
   const blocks = Array.isArray(msg.content)
     ? msg.content
         .filter(isTextBlock)
-        .map((c) =>
-          stripThinkingTagsFromText(
-            stripDowngradedToolCallText(stripMinimaxToolCallXml(c.text)),
-          ).trim(),
-        )
+        .map((c) => {
+          const afterMinimax = stripMinimaxToolCallXml(c.text);
+          const afterDowngraded = stripDowngradedToolCallText(afterMinimax);
+          const afterThinking = stripThinkingTagsFromText(afterDowngraded).trim();
+          // #region agent log
+          fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              location: "pi-embedded-utils.ts:extractAssistantText:blockProcess",
+              message: "Processing text block",
+              data: {
+                original: c.text?.slice(0, 300),
+                afterMinimax: afterMinimax?.slice(0, 300),
+                afterDowngraded: afterDowngraded?.slice(0, 300),
+                afterThinking: afterThinking?.slice(0, 300),
+              },
+              timestamp: Date.now(),
+              sessionId: "debug-session",
+              hypothesisId: "E",
+            }),
+          }).catch(() => {});
+          // #endregion
+          return afterThinking;
+        })
         .filter(Boolean)
     : [];
   const extracted = blocks.join("\n").trim();

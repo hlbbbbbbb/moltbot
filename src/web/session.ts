@@ -7,11 +7,22 @@ import {
   makeWASocket,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import qrcode from "qrcode-terminal";
 import { danger, success } from "../globals.js";
 import { getChildLogger, toPinoLikeLogger } from "../logging.js";
 import { ensureDir, resolveUserPath } from "../utils.js";
 import { VERSION } from "../version.js";
+
+function resolveProxyAgent(): HttpsProxyAgent<string> | undefined {
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY;
+  if (!proxyUrl) return undefined;
+  try {
+    return new HttpsProxyAgent(proxyUrl);
+  } catch {
+    return undefined;
+  }
+}
 import { formatCliCommand } from "../cli/command-format.js";
 
 import {
@@ -106,6 +117,7 @@ export async function createWaSocket(
   maybeRestoreCredsFromBackup(authDir);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
+  const proxyAgent = resolveProxyAgent();
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -117,6 +129,8 @@ export async function createWaSocket(
     browser: ["clawdbot", "cli", VERSION],
     syncFullHistory: false,
     markOnlineOnConnect: false,
+    agent: proxyAgent,
+    fetchAgent: proxyAgent,
   });
 
   sock.ev.on("creds.update", () => enqueueSaveCreds(authDir, saveCreds, sessionLogger));

@@ -32,6 +32,7 @@ import type {
 import type { ChatQueueItem, CronFormState } from "./ui-types";
 import { refreshChatAvatar } from "./app-chat";
 import { renderChat } from "./views/chat";
+import { renderApiConfig } from "./views/api-config";
 import { renderConfig } from "./views/config";
 import { renderChannels } from "./views/channels";
 import { renderCron } from "./views/cron";
@@ -104,7 +105,7 @@ export function renderApp(state: AppViewState) {
   const presenceCount = state.presenceEntries.length;
   const sessionsCount = state.sessionsResult?.count ?? null;
   const cronNext = state.cronStatus?.nextWakeAtMs ?? null;
-  const chatDisabledReason = state.connected ? null : "Disconnected from gateway.";
+  const chatDisabledReason = state.connected ? null : "已断开与网关的连接";
   const isChat = state.tab === "chat";
   const chatFocus = isChat && (state.settings.chatFocusMode || state.onboarding);
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
@@ -112,8 +113,14 @@ export function renderApp(state: AppViewState) {
   const chatAvatarUrl = state.chatAvatarUrl ?? assistantAvatarUrl ?? null;
 
   return html`
+    <!-- NoWorries Prism Clarity - Fluid Background Layer -->
+    <div class="fluid-background">
+      <div class="fluid-blob blob-blue"></div>
+      <div class="fluid-blob blob-purple"></div>
+    </div>
+    
     <div class="shell ${isChat ? "shell--chat" : ""} ${chatFocus ? "shell--chat-focus" : ""} ${state.settings.navCollapsed ? "shell--nav-collapsed" : ""} ${state.onboarding ? "shell--onboarding" : ""}">
-      <header class="topbar">
+      <header class="topbar topbar--glass">
         <div class="topbar-left">
           <button
             class="nav-collapse-toggle"
@@ -122,31 +129,31 @@ export function renderApp(state: AppViewState) {
                 ...state.settings,
                 navCollapsed: !state.settings.navCollapsed,
               })}
-            title="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
-            aria-label="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
+            title="${state.settings.navCollapsed ? "展开侧边栏" : "收起侧边栏"}"
+            aria-label="${state.settings.navCollapsed ? "展开侧边栏" : "收起侧边栏"}"
           >
             <span class="nav-collapse-toggle__icon">${icons.menu}</span>
           </button>
           <div class="brand">
             <div class="brand-logo">
-              <img src="https://mintcdn.com/clawdhub/4rYvG-uuZrMK_URE/assets/pixel-lobster.svg?fit=max&auto=format&n=4rYvG-uuZrMK_URE&q=85&s=da2032e9eac3b5d9bfe7eb96ca6a8a26" alt="Clawdbot" />
+              <img src="https://mintcdn.com/clawdhub/4rYvG-uuZrMK_URE/assets/pixel-lobster.svg?fit=max&auto=format&n=4rYvG-uuZrMK_URE&q=85&s=da2032e9eac3b5d9bfe7eb96ca6a8a26" alt="无事" />
             </div>
             <div class="brand-text">
-              <div class="brand-title">CLAWDBOT</div>
-              <div class="brand-sub">Gateway Dashboard</div>
+              <div class="brand-title">无事</div>
+              <div class="brand-sub">NoWorries</div>
             </div>
           </div>
         </div>
         <div class="topbar-status">
           <div class="pill">
             <span class="statusDot ${state.connected ? "ok" : ""}"></span>
-            <span>Health</span>
-            <span class="mono">${state.connected ? "OK" : "Offline"}</span>
+            <span>状态</span>
+            <span class="mono">${state.connected ? "正常" : "离线"}</span>
           </div>
           ${renderThemeToggle(state)}
         </div>
       </header>
-      <aside class="nav ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
+      <aside class="nav nav--glass ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
         ${TAB_GROUPS.map((group) => {
           const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
           const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
@@ -165,7 +172,7 @@ export function renderApp(state: AppViewState) {
                 aria-expanded=${!isGroupCollapsed}
               >
                 <span class="nav-label__text">${group.label}</span>
-                <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "−"}</span>
+                <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "-"}</span>
               </button>
               <div class="nav-group__items">
                 ${group.tabs.map((tab) => renderTab(state, tab))}
@@ -175,7 +182,7 @@ export function renderApp(state: AppViewState) {
         })}
         <div class="nav-group nav-group--links">
           <div class="nav-label nav-label--static">
-            <span class="nav-label__text">Resources</span>
+            <span class="nav-label__text">资源</span>
           </div>
           <div class="nav-group__items">
             <a
@@ -183,10 +190,10 @@ export function renderApp(state: AppViewState) {
               href="https://docs.clawd.bot"
               target="_blank"
               rel="noreferrer"
-              title="Docs (opens in new tab)"
+              title="文档 (新标签页打开)"
             >
               <span class="nav-item__icon" aria-hidden="true">${icons.book}</span>
-              <span class="nav-item__text">Docs</span>
+              <span class="nav-item__text">文档</span>
             </a>
           </div>
         </div>
@@ -496,6 +503,20 @@ export function renderApp(state: AppViewState) {
               onSplitRatioChange: (ratio: number) => state.handleSplitRatioChange(ratio),
               assistantName: state.assistantName,
               assistantAvatar: state.assistantAvatar,
+            })
+          : nothing}
+
+        ${state.tab === "api-config"
+          ? renderApiConfig({
+              providers: state.apiConfigProviders,
+              currentValues: state.apiConfigValues,
+              loading: state.apiConfigLoading,
+              saving: state.apiConfigSaving,
+              connected: state.connected,
+              onApiKeyChange: (providerId, value) => state.handleApiKeyChange(providerId, value),
+              onSave: () => state.handleApiConfigSave(),
+              onRefreshModels: (providerId) => state.handleRefreshModels(providerId),
+              onTestConnection: (providerId) => state.handleTestConnection(providerId),
             })
           : nothing}
 

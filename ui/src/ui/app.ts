@@ -78,6 +78,7 @@ import {
 } from "./app-channels";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity";
+import { DEFAULT_PROVIDERS } from "./views/api-config";
 
 declare global {
   interface Window {
@@ -174,6 +175,12 @@ export class ClawdbotApp extends LitElement {
   @state() configSearchQuery = "";
   @state() configActiveSection: string | null = null;
   @state() configActiveSubsection: string | null = null;
+
+  // API配置状态
+  @state() apiConfigProviders: Array<any> = [];
+  @state() apiConfigValues: Record<string, string> = {};
+  @state() apiConfigLoading = false;
+  @state() apiConfigSaving = false;
 
   @state() channelsLoading = false;
   @state() channelsSnapshot: ChannelsStatusSnapshot | null = null;
@@ -272,6 +279,8 @@ export class ClawdbotApp extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // 初始化 API 配置提供商列表
+    this.apiConfigProviders = DEFAULT_PROVIDERS;
     handleConnected(this as unknown as Parameters<typeof handleConnected>[0]);
   }
 
@@ -477,6 +486,69 @@ export class ClawdbotApp extends LitElement {
     const newRatio = Math.max(0.4, Math.min(0.7, ratio));
     this.splitRatio = newRatio;
     this.applySettings({ ...this.settings, splitRatio: newRatio });
+  }
+
+  // API 配置方法
+  handleApiKeyChange(providerId: string, value: string) {
+    this.apiConfigValues = { ...this.apiConfigValues, [providerId]: value };
+  }
+
+  async handleApiConfigSave() {
+    if (!this.client || this.apiConfigSaving) return;
+    
+    this.apiConfigSaving = true;
+    try {
+      // 获取当前配置
+      const configResponse = await this.client.request("config.get", {});
+      const currentConfig = configResponse.value || {};
+      const hash = configResponse.hash;
+
+      // 构建更新对象
+      const updates: any = { env: { ...currentConfig.env } };
+
+      for (const [providerId, value] of Object.entries(this.apiConfigValues)) {
+        const provider = this.apiConfigProviders.find((p: any) => p.id === providerId);
+        if (!provider) continue;
+
+        if (value) {
+          updates.env[provider.envKey] = value;
+        }
+      }
+
+      // 使用 config.patch 更新配置
+      await this.client.request("config.patch", {
+        raw: JSON.stringify(updates, null, 2),
+        baseHash: hash,
+        note: "Updated API keys from UI",
+        restartDelayMs: 2000,
+      });
+
+      alert("✓ API 配置已保存，Gateway 即将重启");
+      
+      // 等待重启后重新连接
+      setTimeout(() => {
+        this.connect();
+      }, 3000);
+    } catch (error) {
+      console.error("Failed to save API config:", error);
+      alert("✗ 保存失败: " + (error instanceof Error ? error.message : "Unknown error"));
+    } finally {
+      this.apiConfigSaving = false;
+    }
+  }
+
+  async handleRefreshModels(providerId: string) {
+    if (!this.client) return;
+    alert(`🔄 正在刷新 ${providerId} 的模型列表...`);
+    // 这里可以添加实际的刷新逻辑
+  }
+
+  async handleTestConnection(providerId: string) {
+    if (!this.client) return;
+    const provider = this.apiConfigProviders.find((p: any) => p.id === providerId);
+    if (!provider) return;
+    alert(`🔍 正在测试 ${provider.name} 连接...`);
+    // 这里可以添加实际的测试逻辑
   }
 
   render() {

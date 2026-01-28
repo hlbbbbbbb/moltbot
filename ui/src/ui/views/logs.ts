@@ -44,41 +44,41 @@ export function renderLogs(props: LogsProps) {
     if (entry.level && !props.levelFilters[entry.level]) return false;
     return matchesFilter(entry, needle);
   });
-  const exportLabel = needle || levelFiltered ? "filtered" : "visible";
+  const exportLabel = needle || levelFiltered ? "已筛选" : "可见";
 
   return html`
     <section class="card">
       <div class="row" style="justify-content: space-between;">
         <div>
-          <div class="card-title">Logs</div>
-          <div class="card-sub">Gateway file logs (JSONL).</div>
+          <div class="card-title">日志</div>
+          <div class="card-sub">网关文件日志 (JSONL)</div>
         </div>
         <div class="row" style="gap: 8px;">
           <button class="btn" ?disabled=${props.loading} @click=${props.onRefresh}>
-            ${props.loading ? "Loading…" : "Refresh"}
+            ${props.loading ? "加载中…" : "刷新"}
           </button>
           <button
             class="btn"
             ?disabled=${filtered.length === 0}
             @click=${() => props.onExport(filtered.map((entry) => entry.raw), exportLabel)}
           >
-            Export ${exportLabel}
+            导出 ${exportLabel}
           </button>
         </div>
       </div>
 
       <div class="filters" style="margin-top: 14px;">
         <label class="field" style="min-width: 220px;">
-          <span>Filter</span>
+          <span>筛选</span>
           <input
             .value=${props.filterText}
             @input=${(e: Event) =>
               props.onFilterTextChange((e.target as HTMLInputElement).value)}
-            placeholder="Search logs"
+            placeholder="搜索日志"
           />
         </label>
         <label class="field checkbox">
-          <span>Auto-follow</span>
+          <span>自动跟随</span>
           <input
             type="checkbox"
             .checked=${props.autoFollow}
@@ -105,11 +105,11 @@ export function renderLogs(props: LogsProps) {
       </div>
 
       ${props.file
-        ? html`<div class="muted" style="margin-top: 10px;">File: ${props.file}</div>`
+        ? html`<div class="muted" style="margin-top: 10px;">文件: ${props.file}</div>`
         : nothing}
       ${props.truncated
         ? html`<div class="callout" style="margin-top: 10px;">
-            Log output truncated; showing latest chunk.
+            日志输出已截断；显示最新部分。
           </div>`
         : nothing}
       ${props.error
@@ -118,7 +118,7 @@ export function renderLogs(props: LogsProps) {
 
       <div class="log-stream" style="margin-top: 12px;" @scroll=${props.onScroll}>
         ${filtered.length === 0
-          ? html`<div class="muted" style="padding: 12px;">No log entries.</div>`
+          ? html`<div class="muted" style="padding: 12px;">暂无日志条目</div>`
           : filtered.map(
               (entry) => html`
                 <div class="log-row">

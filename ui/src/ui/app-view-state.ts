@@ -88,6 +88,10 @@ export type AppViewState = {
   configForm: Record<string, unknown> | null;
   configFormOriginal: Record<string, unknown> | null;
   configFormMode: "form" | "raw";
+  apiConfigProviders: Array<any>;
+  apiConfigValues: Record<string, string>;
+  apiConfigLoading: boolean;
+  apiConfigSaving: boolean;
   channelsLoading: boolean;
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
@@ -203,4 +207,8 @@ export type AppViewState = {
   handleLogsLevelFilterToggle: (level: LogLevel) => void;
   handleLogsAutoFollowToggle: (next: boolean) => void;
   handleCallDebugMethod: (method: string, params: string) => Promise<void>;
+  handleApiKeyChange: (providerId: string, value: string) => void;
+  handleApiConfigSave: () => Promise<void>;
+  handleRefreshModels: (providerId: string) => Promise<void>;
+  handleTestConnection: (providerId: string) => Promise<void>;
 };

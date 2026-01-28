@@ -607,3 +607,214 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===========================================
+   NoWorries 棱镜澄明 - 玻璃态侧边栏
+   =========================================== */
+
+.nav--glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+/* 深色主题下的玻璃态 - 更明显 */
+:root:not([data-theme="light"]) .nav--glass {
+  background: rgba(18, 20, 26, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 玻璃态顶栏 */
+.topbar--glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+:root:not([data-theme="light"]) .topbar--glass {
+  background: rgba(18, 20, 26, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* NoWorries 侧边栏布局 - 无顶栏模式 */
+.shell--noworries {
+  grid-template-rows: 1fr;
+  grid-template-areas:
+    "nav content";
+}
+
+.shell--noworries .topbar {
+  display: none;
+}
+
+/* NoWorries 侧边栏底部 */
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  margin-top: 16px;
+}
+
+.sidebar-footer .brand-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.sidebar-footer .brand-cn {
+  font-family: var(--font-serif, serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-strong);
+  letter-spacing: 0.1em;
+}
+
+.sidebar-footer .brand-en {
+  font-family: var(--font-sans-nw, sans-serif);
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 300;
+  letter-spacing: 0.05em;
+}
+
+/* NoWorries 侧边栏操作按钮 */
+.sidebar-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 0 4px;
+}
+
+.btn-new-chat {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--slate-200, #e2e8f0);
+  border-radius: var(--radius-button);
+  color: var(--slate-500, #64748b);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-new-chat:hover {
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: var(--glass-shadow);
+}
+
+.btn-new-chat:active {
+  transform: scale(0.98);
+}
+
+.btn-search {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--slate-200, #e2e8f0);
+  border-radius: var(--radius-button);
+  color: var(--slate-500, #64748b);
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-search:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* 深色主题适配 */
+:root:not([data-theme="light"]) .btn-new-chat {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+:root:not([data-theme="light"]) .btn-new-chat:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root:not([data-theme="light"]) .btn-search {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+:root:not([data-theme="light"]) .btn-search:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 历史记录列表 */
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.history-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: var(--slate-300, #cbd5e1);
+  border-radius: 2px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+:root:not([data-theme="light"]) .history-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.history-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--slate-300, #cbd5e1);
+  flex-shrink: 0;
+}
+
+.history-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.history-text {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

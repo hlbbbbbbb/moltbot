@@ -8,6 +8,22 @@ import { isTruthyEnvValue } from "./infra/env.js";
 import { installProcessWarningFilter } from "./infra/warnings.js";
 import { attachChildProcessBridge } from "./process/child-process-bridge.js";
 
+// #region agent log - Global proxy setup for fetch
+// Set up global proxy for Node.js native fetch using undici
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY;
+if (proxyUrl) {
+  import("undici")
+    .then(({ setGlobalDispatcher, ProxyAgent }) => {
+      const agent = new ProxyAgent(proxyUrl);
+      setGlobalDispatcher(agent);
+      console.log(`[clawdbot] Global proxy configured: ${proxyUrl}`);
+    })
+    .catch((err) => {
+      console.warn(`[clawdbot] Failed to configure global proxy: ${err?.message ?? err}`);
+    });
+}
+// #endregion agent log
+
 process.title = "clawdbot";
 installProcessWarningFilter();
 

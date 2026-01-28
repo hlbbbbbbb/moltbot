@@ -43,6 +43,21 @@ export function handleMessageUpdate(
   const msg = evt.message;
   if (msg?.role !== "assistant") return;
 
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "pi-embedded-subscribe.handlers.messages.ts:handleMessageUpdate",
+      message: "handleMessageUpdate called",
+      data: { role: msg?.role, hasAssistantMessageEvent: !!evt.assistantMessageEvent },
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: "A",
+    }),
+  }).catch(() => {});
+  // #endregion
+
   const assistantEvent = evt.assistantMessageEvent;
   const assistantRecord =
     assistantEvent && typeof assistantEvent === "object"
@@ -50,12 +65,51 @@ export function handleMessageUpdate(
       : undefined;
   const evtType = typeof assistantRecord?.type === "string" ? assistantRecord.type : "";
 
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "pi-embedded-subscribe.handlers.messages.ts:evtTypeCheck",
+      message: "Checking evtType",
+      data: {
+        evtType,
+        assistantRecord: assistantRecord ? JSON.stringify(assistantRecord).slice(0, 500) : null,
+      },
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: "A",
+    }),
+  }).catch(() => {});
+  // #endregion
+
   if (evtType !== "text_delta" && evtType !== "text_start" && evtType !== "text_end") {
     return;
   }
 
   const delta = typeof assistantRecord?.delta === "string" ? assistantRecord.delta : "";
   const content = typeof assistantRecord?.content === "string" ? assistantRecord.content : "";
+
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "pi-embedded-subscribe.handlers.messages.ts:deltaContent",
+      message: "Delta and content extracted",
+      data: {
+        evtType,
+        delta: delta.slice(0, 200),
+        content: content.slice(0, 200),
+        deltaLen: delta.length,
+        contentLen: content.length,
+      },
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: "B",
+    }),
+  }).catch(() => {});
+  // #endregion
 
   appendRawStream({
     ts: Date.now(),
@@ -166,6 +220,25 @@ export function handleMessageEnd(
   promoteThinkingTagsToBlocks(assistantMessage);
 
   const rawText = extractAssistantText(assistantMessage);
+
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/1d16c7a9-78aa-4a41-bd92-8b5bff55381b", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      location: "pi-embedded-subscribe.handlers.messages.ts:handleMessageEnd",
+      message: "handleMessageEnd called",
+      data: {
+        rawTextLen: rawText?.length ?? 0,
+        rawTextPreview: rawText?.slice(0, 300),
+        assistantMessageContent: JSON.stringify(assistantMessage?.content)?.slice(0, 500),
+      },
+      timestamp: Date.now(),
+      sessionId: "debug-session",
+      hypothesisId: "C",
+    }),
+  }).catch(() => {});
+  // #endregion
   appendRawStream({
     ts: Date.now(),
     event: "assistant_message_end",

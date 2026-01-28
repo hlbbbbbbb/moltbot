@@ -48,3 +48,18 @@ Notes
 - macOS-only.
 - Requires Apple Notes.app to be accessible.
 - For automation, grant permissions in System Settings > Privacy & Security > Automation.
+
+## Chinese Content Workaround
+
+AppleScript's `create new note with properties {body:"中文"}` has a bug with Chinese characters. Workaround:
+
+```applescript
+tell application "Notes"
+    -- Step 1: Create note without body (or use English)
+    set newNote to make new note at folder "Notes" of account "iCloud"
+    -- Step 2: Edit body with Chinese content
+    set body of newNote to "我是 Lawrence，这是我第一条记录"
+end tell
+```
+
+Use this approach when adding Chinese content to Apple Notes via automation.
