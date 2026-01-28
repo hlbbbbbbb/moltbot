@@ -141,11 +141,46 @@ export async function monitorWeComKfChannel(
               }
               // 图片消息
               else if (msg.msgtype === "image" && msg.image?.media_id) {
-                await processKfImageMessage({
+                await processKfMediaMessage({
                   msg,
                   account,
                   openKfid,
                   cfg,
+                  mediaType: "image",
+                  mediaId: msg.image.media_id,
+                });
+              }
+              // 视频消息
+              else if (msg.msgtype === "video" && msg.video?.media_id) {
+                await processKfMediaMessage({
+                  msg,
+                  account,
+                  openKfid,
+                  cfg,
+                  mediaType: "video",
+                  mediaId: msg.video.media_id,
+                });
+              }
+              // 文件消息
+              else if (msg.msgtype === "file" && msg.file?.media_id) {
+                await processKfMediaMessage({
+                  msg,
+                  account,
+                  openKfid,
+                  cfg,
+                  mediaType: "file",
+                  mediaId: msg.file.media_id,
+                });
+              }
+              // 语音消息
+              else if (msg.msgtype === "voice" && msg.voice?.media_id) {
+                await processKfMediaMessage({
+                  msg,
+                  account,
+                  openKfid,
+                  cfg,
+                  mediaType: "voice",
+                  mediaId: msg.voice.media_id,
                 });
               }
             }
@@ -252,41 +287,44 @@ async function processKfMessage(params: {
 }
 
 /**
- * 处理客服图片消息
+ * 处理客服媒体消息（图片/视频/文件/语音）
  */
-async function processKfImageMessage(params: {
+async function processKfMediaMessage(params: {
   msg: KfMessage;
   account: WeComAccount;
   openKfid: string;
   cfg: ClawdbotConfig;
+  mediaType: "image" | "video" | "file" | "voice";
+  mediaId: string;
 }): Promise<void> {
-  const { msg, account, openKfid, cfg } = params;
+  const { msg, account, openKfid, cfg, mediaType, mediaId } = params;
   const externalUserId = msg.external_userid;
-  const mediaId = msg.image?.media_id;
 
-  if (!mediaId) {
-    log.error(`图片消息缺少 media_id`);
-    return;
-  }
+  const mediaTypeNames: Record<string, string> = {
+    image: "图片",
+    video: "视频",
+    file: "文件",
+    voice: "语音",
+  };
+  const typeName = mediaTypeNames[mediaType] || "媒体";
 
-  log.info(`收到客服图片消息 from=${externalUserId} mediaId=${mediaId.substring(0, 20)}...`);
+  log.info(`收到客服${typeName}消息 from=${externalUserId} mediaId=${mediaId.substring(0, 20)}...`);
 
   try {
-    // 下载图片
+    // 下载媒体
     const media = await downloadMedia(
       { corpId: account.corpId, secret: account.secret },
       mediaId,
-      "image",
+      mediaType,
     );
 
     if (!media) {
-      log.error(`下载图片失败`);
-      // 发送提示消息
+      log.error(`下载${typeName}失败`);
       await sendWeComKfMessage({
         credentials: { corpId: account.corpId, secret: account.secret },
         toUser: externalUserId,
         openKfid,
-        content: "抱歉，无法处理这张图片。",
+        content: `抱歉，无法处理这个${typeName}。`,
       });
       return;
     }
@@ -295,7 +333,7 @@ async function processKfImageMessage(params: {
     const sessionKey = `wecom-kf:${openKfid}:${externalUserId}`;
 
     const ctx: MsgContext = {
-      Body: "[用户发送了一张图片]",
+      Body: `[用户发送了${typeName}]`,
       From: externalUserId,
       To: openKfid,
       SessionKey: sessionKey,
@@ -308,14 +346,14 @@ async function processKfImageMessage(params: {
       OriginatingChannel: "wecom" as const,
       OriginatingTo: externalUserId,
       CommandAuthorized: true,
-      // 图片信息
+      // 媒体信息
       MediaPath: media.path,
       MediaUrl: media.path,
       MediaType: media.contentType,
     };
 
     // 获取 AI 回复
-    log.info(`正在处理图片，获取 AI 回复...`);
+    log.info(`正在处理${typeName}，获取 AI 回复...`);
     const reply = await getReplyFromConfig(ctx, {}, cfg);
 
     // 处理回复
@@ -334,7 +372,7 @@ async function processKfImageMessage(params: {
       log.info(`未获取到 AI 回复`);
     }
   } catch (error) {
-    log.error(`处理客服图片消息失败: ${String(error)}`);
+    log.error(`处理客服${typeName}消息失败: ${String(error)}`);
   }
 }
 
