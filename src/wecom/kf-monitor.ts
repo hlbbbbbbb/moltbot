@@ -155,14 +155,28 @@ export async function monitorWeComKfChannel(
 
           // 更新游标并持久化
           if (result.next_cursor) {
+            log.info(`保存 cursor: ${result.next_cursor.slice(0, 20)}...`);
             cursorStore.set(openKfid, result.next_cursor);
             saveCursorStore(cursorStore);
+          } else {
+            log.info(`同步结果无 next_cursor`);
           }
 
           // 处理消息
+          const now = Math.floor(Date.now() / 1000);
+          const MAX_MESSAGE_AGE = 60; // 只处理最近60秒内的消息
+
           for (const msg of result.msg_list) {
             // 只处理客户发送的消息 (origin=3)
             if (msg.origin === 3) {
+              // 跳过超过 MAX_MESSAGE_AGE 秒的历史消息
+              const messageAge = now - (msg.send_time ?? 0);
+              if (messageAge > MAX_MESSAGE_AGE) {
+                log.info(
+                  `跳过历史消息 age=${messageAge}s from=${msg.external_userid} type=${msg.msgtype}`,
+                );
+                continue;
+              }
               // 文本消息
               if (msg.msgtype === "text" && msg.text?.content) {
                 await processKfMessage({
