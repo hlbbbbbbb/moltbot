@@ -15,5 +15,5 @@ export { WeComCrypto } from "./crypto.js";
 
 // 微信客服
 export { monitorWeComKfChannel, monitorWeComKfWithCallback } from "./kf-monitor.js";
-export { sendWeComKfMessage } from "./kf-send.js";
+export { sendWeComKfMessage, sendWeComKfMedia } from "./kf-send.js";
 export { syncKfMessages, getKfAccountList } from "./kf-sync.js";

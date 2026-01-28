@@ -12,9 +12,48 @@ import { getReplyFromConfig } from "../auto-reply/reply/get-reply.js";
 import { resolveWeComAccount, type WeComAccount } from "./accounts.js";
 import { WeComCallbackServer, type WeComInboundMessage } from "./callback.js";
 import { syncKfMessages, type KfMessage } from "./kf-sync.js";
-import { sendWeComKfMessage } from "./kf-send.js";
+import { sendWeComKfMessage, sendWeComKfMedia } from "./kf-send.js";
+import type { ReplyPayload } from "../auto-reply/types.js";
 
 const log = createSubsystemLogger("gateway/channels/wecom-kf");
+
+import type { WeComCredentials } from "./token.js";
+
+/**
+ * 发送 ReplyPayload 到微信客服
+ */
+async function sendReplyPayload(params: {
+  payload: ReplyPayload;
+  credentials: WeComCredentials;
+  toUser: string;
+  openKfid: string;
+}): Promise<void> {
+  const { payload, credentials, toUser, openKfid } = params;
+
+  // 处理媒体 URL（单个或多个）
+  const mediaUrls = payload.mediaUrls || (payload.mediaUrl ? [payload.mediaUrl] : []);
+
+  for (const mediaUrl of mediaUrls) {
+    log.info(`发送媒体 to=${toUser} url=${mediaUrl.substring(0, 80)}`);
+    await sendWeComKfMedia({
+      credentials,
+      toUser,
+      openKfid,
+      mediaUrl,
+    });
+  }
+
+  // 发送文本
+  if (payload.text) {
+    log.info(`发送文本回复 to=${toUser} length=${payload.text.length}`);
+    await sendWeComKfMessage({
+      credentials,
+      toUser,
+      openKfid,
+      content: payload.text,
+    });
+  }
+}
 
 export interface WeComKfMonitorOptions {
   accountId?: string;
@@ -52,7 +91,8 @@ export async function monitorWeComKfChannel(
   log.info(`启动微信客服监听 accountId=${accountId} openKfid=${openKfid}`);
 
   let isRunning = true;
-  let pollInterval = 3000; // 轮询间隔 3 秒
+  let pollInterval = 10000; // 轮询间隔 10 秒（避免 API 频率限制）
+  let consecutiveErrors = 0;
 
   // 处理中止信号
   if (abortSignal) {
@@ -78,6 +118,8 @@ export async function monitorWeComKfChannel(
         });
 
         if (result.errcode === 0 && result.msg_list) {
+          consecutiveErrors = 0; // 重置错误计数
+
           // 更新游标
           if (result.next_cursor) {
             cursorStore.set(openKfid, result.next_cursor);
@@ -96,17 +138,27 @@ export async function monitorWeComKfChannel(
             }
           }
 
-          // 如果还有更多消息，立即继续拉取
+          // 如果还有更多消息，短暂延迟后继续拉取
           if (result.has_more === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
             continue;
           }
+        } else if (result.errcode === 45009) {
+          // API 频率限制，使用指数退避
+          consecutiveErrors++;
+          const backoff = Math.min(pollInterval * Math.pow(2, consecutiveErrors), 120000);
+          log.info(`API 频率限制，等待 ${backoff / 1000} 秒后重试`);
+          await new Promise((resolve) => setTimeout(resolve, backoff));
+          continue;
         }
 
         // 等待下一次轮询
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
       } catch (error) {
         log.error(`轮询客服消息失败: ${String(error)}`);
-        await new Promise((resolve) => setTimeout(resolve, pollInterval * 2));
+        consecutiveErrors++;
+        const backoff = Math.min(pollInterval * Math.pow(2, consecutiveErrors), 120000);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
       }
     }
   };
@@ -169,19 +221,12 @@ async function processKfMessage(params: {
       const replies = Array.isArray(reply) ? reply : [reply];
 
       for (const r of replies) {
-        if (r.text) {
-          log.info(`发送客服回复 to=${externalUserId} length=${r.text.length}`);
-
-          await sendWeComKfMessage({
-            credentials: {
-              corpId: account.corpId,
-              secret: account.secret,
-            },
-            toUser: externalUserId,
-            openKfid: openKfid,
-            content: r.text,
-          });
-        }
+        await sendReplyPayload({
+          payload: r,
+          credentials: { corpId: account.corpId, secret: account.secret },
+          toUser: externalUserId,
+          openKfid,
+        });
       }
     } else {
       log.info(`未获取到 AI 回复`);
