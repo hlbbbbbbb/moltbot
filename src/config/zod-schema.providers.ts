@@ -11,11 +11,13 @@ import {
   TelegramConfigSchema,
 } from "./zod-schema.providers-core.js";
 import { WhatsAppConfigSchema } from "./zod-schema.providers-whatsapp.js";
+import { WeComConfigSchema } from "./zod-schema.providers-wecom.js";
 import { GroupPolicySchema } from "./zod-schema.core.js";
 import { ChannelHeartbeatVisibilitySchema } from "./zod-schema.channels.js";
 
 export * from "./zod-schema.providers-core.js";
 export * from "./zod-schema.providers-whatsapp.js";
+export * from "./zod-schema.providers-wecom.js";
 export { ChannelHeartbeatVisibilitySchema } from "./zod-schema.channels.js";
 
 export const ChannelsSchema = z
@@ -36,6 +38,7 @@ export const ChannelsSchema = z
     imessage: IMessageConfigSchema.optional(),
     bluebubbles: BlueBubblesConfigSchema.optional(),
     msteams: MSTeamsConfigSchema.optional(),
+    wecom: WeComConfigSchema.optional(),
   })
   .passthrough() // Allow extension channel configs (nostr, matrix, zalo, etc.)
   .optional();

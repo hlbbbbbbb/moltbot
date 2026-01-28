@@ -1,0 +1,7 @@
+{
+  "name": "@clawdbot/ext-wecom",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {}
+}
