@@ -2,6 +2,9 @@
  * 微信客服发送消息
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getWeComAccessToken, type WeComCredentials } from "./token.js";
 
@@ -155,20 +158,60 @@ async function uploadMedia(
   try {
     const token = await getWeComAccessToken(credentials);
 
-    // 下载媒体文件
-    log.info(`下载媒体文件 url=${mediaUrl.substring(0, 100)}`);
-    const response = await fetch(mediaUrl);
-    if (!response.ok) {
-      log.error(`下载媒体文件失败 status=${response.status}`);
-      return null;
+    let buffer: Buffer;
+    let contentType: string;
+    let fileName: string;
+
+    // 判断是本地文件还是 URL
+    const isLocalFile = !mediaUrl.startsWith("http://") && !mediaUrl.startsWith("https://");
+
+    if (isLocalFile) {
+      // 本地文件
+      log.info(`读取本地媒体文件 path=${mediaUrl}`);
+      if (!fs.existsSync(mediaUrl)) {
+        log.error(`本地文件不存在 path=${mediaUrl}`);
+        return null;
+      }
+      buffer = fs.readFileSync(mediaUrl);
+      fileName = path.basename(mediaUrl);
+      // 根据扩展名推断 content-type
+      const ext = path.extname(mediaUrl).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".avi": "video/x-msvideo",
+        ".webm": "video/webm",
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".zip": "application/zip",
+        ".txt": "text/plain",
+      };
+      contentType = mimeTypes[ext] || "application/octet-stream";
+    } else {
+      // HTTP URL
+      log.info(`下载媒体文件 url=${mediaUrl.substring(0, 100)}`);
+      const response = await fetch(mediaUrl);
+      if (!response.ok) {
+        log.error(`下载媒体文件失败 status=${response.status}`);
+        return null;
+      }
+      contentType = response.headers.get("content-type") || "application/octet-stream";
+      buffer = Buffer.from(await response.arrayBuffer());
+      const urlPath = new URL(mediaUrl).pathname;
+      fileName = urlPath.split("/").pop() || "media";
     }
 
-    const contentType = response.headers.get("content-type") || "application/octet-stream";
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    // 提取文件名
-    const urlPath = new URL(mediaUrl).pathname;
-    let fileName = urlPath.split("/").pop() || "media";
     if (!fileName.includes(".")) {
       // 添加扩展名
       const ext = contentType.split("/")[1]?.split(";")[0] || "bin";
