@@ -17,3 +17,4 @@ export { WeComCrypto } from "./crypto.js";
 export { monitorWeComKfChannel, monitorWeComKfWithCallback } from "./kf-monitor.js";
 export { sendWeComKfMessage, sendWeComKfMedia } from "./kf-send.js";
 export { syncKfMessages, getKfAccountList } from "./kf-sync.js";
+export { downloadMedia, getMediaUrl } from "./kf-media.js";

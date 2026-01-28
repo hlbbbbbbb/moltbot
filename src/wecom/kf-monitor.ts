@@ -14,6 +14,7 @@ import { WeComCallbackServer, type WeComInboundMessage } from "./callback.js";
 import { syncKfMessages, type KfMessage } from "./kf-sync.js";
 import { sendWeComKfMessage, sendWeComKfMedia } from "./kf-send.js";
 import type { ReplyPayload } from "../auto-reply/types.js";
+import { downloadMedia } from "./kf-media.js";
 
 const log = createSubsystemLogger("gateway/channels/wecom-kf");
 
@@ -127,14 +128,26 @@ export async function monitorWeComKfChannel(
 
           // 处理消息
           for (const msg of result.msg_list) {
-            // 只处理客户发送的文本消息 (origin=3)
-            if (msg.origin === 3 && msg.msgtype === "text" && msg.text?.content) {
-              await processKfMessage({
-                msg,
-                account,
-                openKfid,
-                cfg,
-              });
+            // 只处理客户发送的消息 (origin=3)
+            if (msg.origin === 3) {
+              // 文本消息
+              if (msg.msgtype === "text" && msg.text?.content) {
+                await processKfMessage({
+                  msg,
+                  account,
+                  openKfid,
+                  cfg,
+                });
+              }
+              // 图片消息
+              else if (msg.msgtype === "image" && msg.image?.media_id) {
+                await processKfImageMessage({
+                  msg,
+                  account,
+                  openKfid,
+                  cfg,
+                });
+              }
             }
           }
 
@@ -235,6 +248,93 @@ async function processKfMessage(params: {
     }
   } catch (error) {
     log.error(`处理客服消息失败: ${String(error)}`);
+  }
+}
+
+/**
+ * 处理客服图片消息
+ */
+async function processKfImageMessage(params: {
+  msg: KfMessage;
+  account: WeComAccount;
+  openKfid: string;
+  cfg: ClawdbotConfig;
+}): Promise<void> {
+  const { msg, account, openKfid, cfg } = params;
+  const externalUserId = msg.external_userid;
+  const mediaId = msg.image?.media_id;
+
+  if (!mediaId) {
+    log.error(`图片消息缺少 media_id`);
+    return;
+  }
+
+  log.info(`收到客服图片消息 from=${externalUserId} mediaId=${mediaId.substring(0, 20)}...`);
+
+  try {
+    // 下载图片
+    const media = await downloadMedia(
+      { corpId: account.corpId, secret: account.secret },
+      mediaId,
+      "image",
+    );
+
+    if (!media) {
+      log.error(`下载图片失败`);
+      // 发送提示消息
+      await sendWeComKfMessage({
+        credentials: { corpId: account.corpId, secret: account.secret },
+        toUser: externalUserId,
+        openKfid,
+        content: "抱歉，无法处理这张图片。",
+      });
+      return;
+    }
+
+    // 构建消息上下文
+    const sessionKey = `wecom-kf:${openKfid}:${externalUserId}`;
+
+    const ctx: MsgContext = {
+      Body: "[用户发送了一张图片]",
+      From: externalUserId,
+      To: openKfid,
+      SessionKey: sessionKey,
+      AccountId: account.accountId,
+      Provider: "wecom-kf",
+      Surface: "wecom-kf",
+      ChatType: "dm",
+      Timestamp: msg.send_time * 1000,
+      MessageSid: msg.msgid,
+      OriginatingChannel: "wecom" as const,
+      OriginatingTo: externalUserId,
+      CommandAuthorized: true,
+      // 图片信息
+      MediaPath: media.path,
+      MediaUrl: media.path,
+      MediaType: media.contentType,
+    };
+
+    // 获取 AI 回复
+    log.info(`正在处理图片，获取 AI 回复...`);
+    const reply = await getReplyFromConfig(ctx, {}, cfg);
+
+    // 处理回复
+    if (reply) {
+      const replies = Array.isArray(reply) ? reply : [reply];
+
+      for (const r of replies) {
+        await sendReplyPayload({
+          payload: r,
+          credentials: { corpId: account.corpId, secret: account.secret },
+          toUser: externalUserId,
+          openKfid,
+        });
+      }
+    } else {
+      log.info(`未获取到 AI 回复`);
+    }
+  } catch (error) {
+    log.error(`处理客服图片消息失败: ${String(error)}`);
   }
 }
 
