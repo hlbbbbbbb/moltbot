@@ -369,6 +369,26 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
       },
     },
   },
+  wecom: {
+    id: "wecom",
+    capabilities: {
+      chatTypes: ["direct"],
+      media: true,
+    },
+    outbound: { textChunkLimit: 2000 },
+    config: {
+      resolveAllowFrom: ({ cfg }) => {
+        const wecomCfg = cfg.channels?.wecom as Record<string, unknown> | undefined;
+        const allowFrom = wecomCfg?.allowFrom;
+        if (Array.isArray(allowFrom)) {
+          return allowFrom.map((entry) => String(entry));
+        }
+        return [];
+      },
+      formatAllowFrom: ({ allowFrom }) =>
+        allowFrom.map((entry) => String(entry).trim()).filter(Boolean),
+    },
+  },
 };
 
 function buildDockFromPlugin(plugin: ChannelPlugin): ChannelDock {
