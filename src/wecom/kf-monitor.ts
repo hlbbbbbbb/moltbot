@@ -70,8 +70,38 @@ export interface WeComKfMonitorResult {
   close: () => Promise<void>;
 }
 
-// 存储同步游标
-const cursorStore = new Map<string, string>();
+// 存储同步游标（持久化到文件）
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+const CURSOR_FILE = path.join(os.tmpdir(), "clawdbot", "wecom-kf-cursor.json");
+
+function loadCursorStore(): Map<string, string> {
+  try {
+    if (fs.existsSync(CURSOR_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CURSOR_FILE, "utf-8"));
+      return new Map(Object.entries(data));
+    }
+  } catch (e) {
+    // 忽略错误，使用空 Map
+  }
+  return new Map();
+}
+
+function saveCursorStore(store: Map<string, string>): void {
+  try {
+    const dir = path.dirname(CURSOR_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(CURSOR_FILE, JSON.stringify(Object.fromEntries(store)), "utf-8");
+  } catch (e) {
+    // 忽略保存错误
+  }
+}
+
+const cursorStore = loadCursorStore();
 
 /**
  * 启动微信客服消息监听（轮询模式）
@@ -123,9 +153,10 @@ export async function monitorWeComKfChannel(
         if (result.errcode === 0 && result.msg_list) {
           consecutiveErrors = 0; // 重置错误计数
 
-          // 更新游标
+          // 更新游标并持久化
           if (result.next_cursor) {
             cursorStore.set(openKfid, result.next_cursor);
+            saveCursorStore(cursorStore);
           }
 
           // 处理消息
@@ -435,6 +466,7 @@ export async function monitorWeComKfWithCallback(
       if (result.errcode === 0 && result.msg_list) {
         if (result.next_cursor) {
           cursorStore.set(openKfid, result.next_cursor);
+          saveCursorStore(cursorStore);
         }
 
         for (const kfMsg of result.msg_list) {
