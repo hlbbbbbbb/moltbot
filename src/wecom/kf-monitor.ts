@@ -210,6 +210,8 @@ async function processKfMessage(params: {
       MessageSid: msg.msgid,
       OriginatingChannel: "wecom" as const,
       OriginatingTo: externalUserId,
+      // 启用命令处理
+      CommandAuthorized: true,
     };
 
     // 获取 AI 回复

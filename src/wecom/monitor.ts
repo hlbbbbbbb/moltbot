@@ -11,10 +11,49 @@ import type { MsgContext } from "../auto-reply/templating.js";
 import { getReplyFromConfig } from "../auto-reply/reply/get-reply.js";
 import { resolveWeComAccount, type WeComAccount } from "./accounts.js";
 import { WeComCallbackServer, type WeComInboundMessage } from "./callback.js";
-import { sendWeComMessage } from "./send.js";
+import { sendWeComMessage, sendWeComMedia } from "./send.js";
+import type { ReplyPayload } from "../auto-reply/types.js";
 import { monitorWeComKfChannel } from "./kf-monitor.js";
 
 const log = createSubsystemLogger("gateway/channels/wecom");
+
+import type { WeComCredentials } from "./token.js";
+
+/**
+ * 发送 ReplyPayload 到企业微信自建应用
+ */
+async function sendReplyPayloadToWecom(params: {
+  payload: ReplyPayload;
+  credentials: WeComCredentials;
+  agentId: number;
+  toUser: string;
+}): Promise<void> {
+  const { payload, credentials, agentId, toUser } = params;
+
+  // 处理媒体 URL（单个或多个）
+  const mediaUrls = payload.mediaUrls || (payload.mediaUrl ? [payload.mediaUrl] : []);
+
+  for (const mediaUrl of mediaUrls) {
+    log.info(`发送媒体 to=${toUser} url=${mediaUrl.substring(0, 80)}`);
+    await sendWeComMedia({
+      credentials,
+      agentId,
+      toUser,
+      mediaUrl,
+    });
+  }
+
+  // 发送文本
+  if (payload.text) {
+    log.info(`发送回复 to=${toUser} length=${payload.text.length}`);
+    await sendWeComMessage({
+      credentials,
+      agentId,
+      toUser,
+      content: payload.text,
+    });
+  }
+}
 
 // 企业微信配置类型
 interface WeComKfConfig {
@@ -108,6 +147,8 @@ export async function monitorWeComChannel(
         MessageSid: msg.id,
         OriginatingChannel: "wecom" as const,
         OriginatingTo: msg.from,
+        // 启用命令处理
+        CommandAuthorized: true,
       };
 
       // 获取 AI 回复
@@ -119,19 +160,12 @@ export async function monitorWeComChannel(
         const replies = Array.isArray(reply) ? reply : [reply];
 
         for (const r of replies) {
-          if (r.text) {
-            log.info(`发送回复 to=${msg.from} length=${r.text.length}`);
-
-            await sendWeComMessage({
-              credentials: {
-                corpId: account.corpId,
-                secret: account.secret,
-              },
-              agentId: account.agentId,
-              toUser: msg.from,
-              content: r.text,
-            });
-          }
+          await sendReplyPayloadToWecom({
+            payload: r,
+            credentials: { corpId: account.corpId, secret: account.secret },
+            agentId: account.agentId,
+            toUser: msg.from,
+          });
         }
       } else {
         log.info(`未获取到 AI 回复`);

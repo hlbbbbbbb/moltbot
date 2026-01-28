@@ -15,6 +15,14 @@ export interface WeComSendOptions {
   msgType?: "text" | "markdown";
 }
 
+export interface WeComSendMediaOptions {
+  credentials: WeComCredentials;
+  agentId: number;
+  toUser: string;
+  mediaUrl: string;
+  caption?: string;
+}
+
 export interface WeComSendResult {
   success: boolean;
   errcode?: number;
@@ -126,4 +134,165 @@ function splitMessage(message: string, maxLength: number): string[] {
   }
 
   return chunks;
+}
+
+/**
+ * 根据 URL 判断媒体类型
+ */
+function detectMediaType(url: string): "image" | "video" | "file" {
+  const urlLower = url.toLowerCase();
+  if (/\.(jpg|jpeg|png|gif|webp|bmp)(\?|$)/i.test(urlLower)) return "image";
+  if (/\.(mp4|mov|avi|wmv|webm|mkv)(\?|$)/i.test(urlLower)) return "video";
+  return "file";
+}
+
+/**
+ * 上传临时素材
+ */
+async function uploadMedia(
+  credentials: WeComCredentials,
+  mediaUrl: string,
+  mediaType: "image" | "video" | "file",
+): Promise<{ media_id: string } | null> {
+  try {
+    const token = await getWeComAccessToken(credentials);
+
+    log.info(`下载媒体文件 url=${mediaUrl.substring(0, 100)}`);
+    const response = await fetch(mediaUrl);
+    if (!response.ok) {
+      log.error(`下载媒体文件失败 status=${response.status}`);
+      return null;
+    }
+
+    const contentType = response.headers.get("content-type") || "application/octet-stream";
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    const urlPath = new URL(mediaUrl).pathname;
+    let fileName = urlPath.split("/").pop() || "media";
+    if (!fileName.includes(".")) {
+      const ext = contentType.split("/")[1]?.split(";")[0] || "bin";
+      fileName = `${fileName}.${ext}`;
+    }
+
+    const boundary = `----WeComBoundary${Date.now()}`;
+    const parts: Buffer[] = [];
+
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="media"; filename="${fileName}"\r\n` +
+          `Content-Type: ${contentType}\r\n\r\n`,
+      ),
+    );
+    parts.push(buffer);
+    parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+    const body = Buffer.concat(parts);
+
+    const uploadUrl = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=${mediaType}`;
+
+    log.info(`上传媒体到企业微信 type=${mediaType} size=${buffer.length}`);
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    const result = (await uploadResponse.json()) as {
+      errcode?: number;
+      errmsg?: string;
+      media_id?: string;
+    };
+
+    if (result.errcode && result.errcode !== 0) {
+      log.error(`上传媒体失败 errcode=${result.errcode} errmsg=${result.errmsg}`);
+      return null;
+    }
+
+    log.info(`上传媒体成功 media_id=${result.media_id}`);
+    return { media_id: result.media_id! };
+  } catch (error) {
+    log.error(`上传媒体异常: ${String(error)}`);
+    return null;
+  }
+}
+
+/**
+ * 发送媒体消息（自建应用）
+ */
+export async function sendWeComMedia(options: WeComSendMediaOptions): Promise<WeComSendResult> {
+  const { credentials, agentId, toUser, mediaUrl, caption } = options;
+
+  try {
+    const mediaType = detectMediaType(mediaUrl);
+
+    const uploadResult = await uploadMedia(credentials, mediaUrl, mediaType);
+    if (!uploadResult) {
+      log.info(`媒体上传失败，发送链接`);
+      const text = caption ? `${caption}\n\n${mediaUrl}` : mediaUrl;
+      return sendWeComMessage({
+        credentials,
+        agentId,
+        toUser,
+        content: text,
+      });
+    }
+
+    const token = await getWeComAccessToken(credentials);
+    const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`;
+
+    const body: Record<string, unknown> = {
+      touser: toUser,
+      msgtype: mediaType,
+      agentid: agentId,
+      [mediaType]: {
+        media_id: uploadResult.media_id,
+      },
+    };
+
+    log.info(`发送媒体消息 type=${mediaType} to=${toUser}`);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = (await response.json()) as {
+      errcode?: number;
+      errmsg?: string;
+      msgid?: string;
+    };
+
+    if (data.errcode && data.errcode !== 0) {
+      log.error(`发送媒体失败 errcode=${data.errcode} errmsg=${data.errmsg}`);
+      return {
+        success: false,
+        errcode: data.errcode,
+        errmsg: data.errmsg,
+      };
+    }
+
+    if (caption) {
+      await sendWeComMessage({
+        credentials,
+        agentId,
+        toUser,
+        content: caption,
+      });
+    }
+
+    log.info(`媒体消息发送成功 type=${mediaType}`);
+    return {
+      success: true,
+      msgid: data.msgid,
+    };
+  } catch (error) {
+    log.error(`发送媒体消息异常: ${String(error)}`);
+    return {
+      success: false,
+      errmsg: String(error),
+    };
+  }
 }

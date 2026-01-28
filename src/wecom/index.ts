@@ -7,7 +7,7 @@
 // 自建应用
 export { monitorWeComChannel } from "./monitor.js";
 export { probeWeCom } from "./probe.js";
-export { sendWeComMessage } from "./send.js";
+export { sendWeComMessage, sendWeComMedia } from "./send.js";
 export { resolveWeComAccount, type WeComAccount } from "./accounts.js";
 export { getWeComAccessToken, type WeComCredentials } from "./token.js";
 export { WeComCallbackServer } from "./callback.js";
