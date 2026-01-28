@@ -21,7 +21,7 @@ const log = createSubsystemLogger("gateway/channels/wecom-kf");
 import type { WeComCredentials } from "./token.js";
 
 /**
- * 发送 ReplyPayload 到微信客服（支持分段发送）
+ * 发送 ReplyPayload 到微信客服
  */
 async function sendReplyPayload(params: {
   payload: ReplyPayload;
@@ -46,90 +46,16 @@ async function sendReplyPayload(params: {
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
 
-  // 发送文本（支持分段发送，模拟人类一句一句发）
+  // 发送文本
   if (payload.text) {
-    // 按双换行或单换行分割成多段
-    const segments = splitTextIntoSegments(payload.text);
-
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      if (!segment.trim()) continue;
-
-      log.info(`发送文本回复 [${i + 1}/${segments.length}] to=${toUser} length=${segment.length}`);
-      await sendWeComKfMessage({
-        credentials,
-        toUser,
-        openKfid,
-        content: segment,
-      });
-
-      // 模拟人类打字，每段之间短暂延迟（除了最后一段）
-      if (i < segments.length - 1) {
-        // 根据内容长度调整延迟，模拟真人打字
-        const delay = Math.min(300 + segment.length * 10, 2000);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
+    log.info(`发送文本回复 to=${toUser} length=${payload.text.length}`);
+    await sendWeComKfMessage({
+      credentials,
+      toUser,
+      openKfid,
+      content: payload.text,
+    });
   }
-}
-
-/**
- * 将文本分割成多个段落，用于模拟人类一句一句发送
- */
-function splitTextIntoSegments(text: string): string[] {
-  // 首先尝试按双换行分割（段落分隔）
-  let segments = text.split(/\n\n+/).filter(Boolean);
-
-  // 如果只有一段且太长（超过 200 字），尝试按单换行分割
-  if (segments.length === 1 && segments[0].length > 200) {
-    segments = text.split(/\n/).filter(Boolean);
-  }
-
-  // 如果还是只有一段且太长，按句号/问号/感叹号分割
-  if (segments.length === 1 && segments[0].length > 300) {
-    segments = text.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
-  }
-
-  // 合并过短的段落（少于 10 个字符的合并到下一段）
-  const merged: string[] = [];
-  let buffer = "";
-
-  for (const seg of segments) {
-    if (buffer) {
-      buffer += "\n" + seg;
-      if (buffer.length >= 20) {
-        merged.push(buffer);
-        buffer = "";
-      }
-    } else if (seg.length < 10 && merged.length > 0) {
-      // 太短的段落合并到上一段
-      merged[merged.length - 1] += "\n" + seg;
-    } else if (seg.length < 10) {
-      buffer = seg;
-    } else {
-      merged.push(seg);
-    }
-  }
-
-  if (buffer) {
-    if (merged.length > 0) {
-      merged[merged.length - 1] += "\n" + buffer;
-    } else {
-      merged.push(buffer);
-    }
-  }
-
-  // 限制最多 10 段（防止太多消息）
-  if (merged.length > 10) {
-    const result: string[] = [];
-    const perChunk = Math.ceil(merged.length / 10);
-    for (let i = 0; i < merged.length; i += perChunk) {
-      result.push(merged.slice(i, i + perChunk).join("\n\n"));
-    }
-    return result;
-  }
-
-  return merged.length > 0 ? merged : [text];
 }
 
 export interface WeComKfMonitorOptions {
