@@ -1,6 +1,7 @@
 import type { ChannelId, ChannelOutboundAdapter } from "../types.js";
 import type { PluginRegistry } from "../../../plugins/registry.js";
 import { getActivePluginRegistry } from "../../../plugins/runtime.js";
+import { wecomOutbound } from "./wecom.js";
 
 // Channel docking: outbound sends should stay cheap to import.
 //
@@ -19,6 +20,11 @@ function ensureCacheForRegistry(registry: PluginRegistry | null) {
 export async function loadChannelOutboundAdapter(
   id: ChannelId,
 ): Promise<ChannelOutboundAdapter | undefined> {
+  // Handle WeCom directly (not registered as a full plugin)
+  if (id === "wecom" || id === "wecom-kf") {
+    return wecomOutbound;
+  }
+
   const registry = getActivePluginRegistry();
   ensureCacheForRegistry(registry);
   const cached = cache.get(id);
