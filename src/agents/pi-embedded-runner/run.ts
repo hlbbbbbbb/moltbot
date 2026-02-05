@@ -10,6 +10,9 @@ import {
   markAuthProfileGood,
   markAuthProfileUsed,
 } from "../auth-profiles.js";
+import { createEpisodeFromRunResult } from "../../memory/episode-memory.js";
+import { addMemoryItem } from "../../memory/memory-consolidation.js";
+import { getMemoryScheduler } from "../../memory/memory-scheduler.js";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
   CONTEXT_WINDOW_WARN_BELOW_TOKENS,
@@ -618,6 +621,51 @@ export async function runEmbeddedPiAgent(
               agentDir: params.agentDir,
             });
           }
+
+          // Record episode and add to memory index for consolidation tracking
+          try {
+            const agentId = params.sessionKey?.split(":")[0] ?? "main";
+            const episode = createEpisodeFromRunResult({
+              workspaceDir: params.workspaceDir,
+              sessionId: params.sessionId,
+              agentId,
+              prompt: params.prompt,
+              success: !aborted && !timedOut,
+              aborted,
+              timedOut,
+              durationMs: Date.now() - started,
+              toolsUsed: attempt.toolMetas,
+              errorMessage: attempt.lastToolError?.error,
+            });
+
+            if (episode) {
+              // Add to memory index for recall tracking
+              addMemoryItem(params.workspaceDir, {
+                content: episode.event,
+                type: "episode",
+                importance: episode.outcome === "success" ? 5 : 3,
+                source: `episode:${episode.id}`,
+                context:
+                  episode.files.length > 0
+                    ? `files: ${episode.files.slice(0, 3).join(", ")}`
+                    : undefined,
+              });
+
+              // Initialize scheduler for this agent (if not already running)
+              const scheduler = getMemoryScheduler({
+                agentId,
+                workspaceDir: params.workspaceDir,
+              });
+              if (!scheduler.isRunning()) {
+                scheduler.init().catch((err) => {
+                  log.warn(`Failed to init memory scheduler: ${err}`);
+                });
+              }
+            }
+          } catch (episodeErr) {
+            log.warn(`Failed to record episode: ${episodeErr}`);
+          }
+
           return {
             payloads: payloads.length ? payloads : undefined,
             meta: {

@@ -8,6 +8,7 @@ const memoryCorePlugin = {
   kind: "memory",
   configSchema: emptyPluginConfigSchema(),
   register(api: ClawdbotPluginApi) {
+    // Register semantic memory tools (MEMORY.md + memory/*.md)
     api.registerTool(
       (ctx) => {
         const memorySearchTool = api.runtime.tools.createMemorySearchTool({
@@ -22,6 +23,23 @@ const memoryCorePlugin = {
         return [memorySearchTool, memoryGetTool];
       },
       { names: ["memory_search", "memory_get"] },
+    );
+
+    // Register episodic memory tools (episodes/ + memory-index.json)
+    api.registerTool(
+      (ctx) => {
+        const episodeSearchTool = api.runtime.tools.createEpisodeSearchTool({
+          config: ctx.config,
+          agentSessionKey: ctx.sessionKey,
+        });
+        const memoryOverviewTool = api.runtime.tools.createMemoryOverviewTool({
+          config: ctx.config,
+          agentSessionKey: ctx.sessionKey,
+        });
+        if (!episodeSearchTool || !memoryOverviewTool) return null;
+        return [episodeSearchTool, memoryOverviewTool];
+      },
+      { names: ["episode_search", "memory_overview"] },
     );
 
     api.registerCli(

@@ -84,6 +84,10 @@ type ResizeToJpeg = typeof import("../../media/image-ops.js").resizeToJpeg;
 type CreateMemoryGetTool = typeof import("../../agents/tools/memory-tool.js").createMemoryGetTool;
 type CreateMemorySearchTool =
   typeof import("../../agents/tools/memory-tool.js").createMemorySearchTool;
+type CreateEpisodeSearchTool =
+  typeof import("../../agents/tools/memory-tool.js").createEpisodeSearchTool;
+type CreateMemoryOverviewTool =
+  typeof import("../../agents/tools/memory-tool.js").createMemoryOverviewTool;
 type RegisterMemoryCli = typeof import("../../cli/memory-cli.js").registerMemoryCli;
 type DiscordMessageActions =
   typeof import("../../channels/plugins/actions/discord.js").discordMessageActions;
@@ -200,6 +204,8 @@ export type PluginRuntime = {
   tools: {
     createMemoryGetTool: CreateMemoryGetTool;
     createMemorySearchTool: CreateMemorySearchTool;
+    createEpisodeSearchTool: CreateEpisodeSearchTool;
+    createMemoryOverviewTool: CreateMemoryOverviewTool;
     registerMemoryCli: RegisterMemoryCli;
   };
   channel: {

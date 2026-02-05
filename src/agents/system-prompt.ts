@@ -34,14 +34,26 @@ function buildSkillsSection(params: {
 
 function buildMemorySection(params: { isMinimal: boolean; availableTools: Set<string> }) {
   if (params.isMinimal) return [];
-  if (!params.availableTools.has("memory_search") && !params.availableTools.has("memory_get")) {
+  const hasSemanticMemory =
+    params.availableTools.has("memory_search") || params.availableTools.has("memory_get");
+  const hasEpisodicMemory =
+    params.availableTools.has("episode_search") || params.availableTools.has("memory_overview");
+  if (!hasSemanticMemory && !hasEpisodicMemory) {
     return [];
   }
-  return [
-    "## Memory Recall",
-    "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
-    "",
-  ];
+  const lines = ["## Memory Recall"];
+  if (hasSemanticMemory) {
+    lines.push(
+      "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
+    );
+  }
+  if (hasEpisodicMemory) {
+    lines.push(
+      "For questions about past actions ('what did I do', 'when did I work on X', specific tasks): use episode_search to find relevant task events. Use memory_overview for a quick status of the memory system.",
+    );
+  }
+  lines.push("");
+  return lines;
 }
 
 function buildUserIdentitySection(ownerLine: string | undefined, isMinimal: boolean) {
