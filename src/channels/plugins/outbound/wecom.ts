@@ -9,60 +9,100 @@ import { sendWeComMessage, sendWeComMedia } from "../../../wecom/send.js";
 import { sendWeComKfMessage, sendWeComKfMedia } from "../../../wecom/kf-send.js";
 import { resolveWeComAccount } from "../../../wecom/accounts.js";
 import { loadConfig } from "../../../config/config.js";
+import { convertMarkdownForWeChat } from "../../../wecom/format.js";
 
 /**
- * Split text into chunks for human-like delivery
+ * 分割长文本为多个 chunk
+ *
+ * 微信客服消息限制约 2048 字符，使用 1800 作为安全上限
+ * 分割策略：
+ * 1. 先按段落分割
+ * 2. 合并短段落
+ * 3. 确保每个 chunk 不超过限制
+ * 4. 添加分页提示
  */
-function splitTextIntoChunks(text: string, maxLength: number = 2000): string[] {
-  // First try to split by double newlines (paragraphs)
+function splitTextIntoChunks(text: string, maxLength: number = 1800): string[] {
+  if (!text || text.length <= maxLength) {
+    return text ? [text] : [];
+  }
+
+  // 先按双换行分段
   let segments = text.split(/\n\n+/).filter(Boolean);
 
-  // If only one segment and too long, split by single newlines
-  if (segments.length === 1 && segments[0].length > 200) {
+  // 如果只有一段且太长，按单换行分
+  if (segments.length === 1 && segments[0].length > maxLength) {
     segments = text.split(/\n/).filter(Boolean);
   }
 
-  // If still only one segment and too long, split by punctuation
-  if (segments.length === 1 && segments[0].length > 300) {
-    segments = text.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
+  // 如果还是单段且太长，按句子分
+  if (segments.length === 1 && segments[0].length > maxLength) {
+    segments = text.split(/(?<=[。！？.!?；;])\s*/).filter(Boolean);
   }
 
-  // Merge short segments
+  // 合并短段落，同时确保不超过限制
   const merged: string[] = [];
   let buffer = "";
 
   for (const seg of segments) {
-    if (buffer) {
-      buffer += "\n" + seg;
-      if (buffer.length >= 20) {
+    // 如果单个段落就超过限制，需要强制截断
+    if (seg.length > maxLength) {
+      // 先保存 buffer
+      if (buffer) {
         merged.push(buffer);
         buffer = "";
       }
-    } else if (seg.length < 10 && merged.length > 0) {
-      merged[merged.length - 1] += "\n" + seg;
-    } else if (seg.length < 10) {
-      buffer = seg;
+      // 强制分割超长段落
+      let remaining = seg;
+      while (remaining.length > maxLength) {
+        // 找合适的截断点
+        let cutPoint = maxLength;
+        const punctuations = ["。", "！", "？", ".", "!", "?", "，", ",", " "];
+        for (const p of punctuations) {
+          const idx = remaining.lastIndexOf(p, maxLength);
+          if (idx > maxLength * 0.5) {
+            cutPoint = idx + 1;
+            break;
+          }
+        }
+        merged.push(remaining.substring(0, cutPoint).trim());
+        remaining = remaining.substring(cutPoint).trim();
+      }
+      if (remaining) {
+        buffer = remaining;
+      }
+      continue;
+    }
+
+    // 正常合并逻辑
+    if (buffer) {
+      const combined = buffer + "\n\n" + seg;
+      if (combined.length <= maxLength) {
+        buffer = combined;
+      } else {
+        merged.push(buffer);
+        buffer = seg;
+      }
     } else {
-      merged.push(seg);
+      buffer = seg;
     }
   }
 
   if (buffer) {
-    if (merged.length > 0) {
-      merged[merged.length - 1] += "\n" + buffer;
-    } else {
-      merged.push(buffer);
-    }
+    merged.push(buffer);
   }
 
-  // Limit to 10 chunks max
-  if (merged.length > 10) {
-    const result: string[] = [];
-    const perChunk = Math.ceil(merged.length / 10);
-    for (let i = 0; i < merged.length; i += perChunk) {
-      result.push(merged.slice(i, i + perChunk).join("\n\n"));
-    }
-    return result;
+  // 添加分页提示（不使用emoji，避免兼容性问题）
+  if (merged.length > 1) {
+    return merged.map((chunk, i) => {
+      const pageInfo = `(${i + 1}/${merged.length})`;
+      if (i === 0) {
+        return `${chunk}\n\n${pageInfo} ...`;
+      } else if (i === merged.length - 1) {
+        return `${pageInfo}\n${chunk}`;
+      } else {
+        return `${pageInfo}\n${chunk}\n\n...`;
+      }
+    });
   }
 
   return merged.length > 0 ? merged : [text];
@@ -98,7 +138,7 @@ function parseWeComTarget(to: string): {
 
 export const wecomOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
-  textChunkLimit: 2000,
+  textChunkLimit: 1800, // 微信客服消息限制约 2048，留余量
   chunker: splitTextIntoChunks,
   chunkerMode: "text",
 
@@ -120,8 +160,11 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     const parsed = parseWeComTarget(to);
     const credentials = { corpId: account.corpId, secret: account.secret };
 
+    // 将 Markdown 转换为微信友好格式
+    const formattedText = convertMarkdownForWeChat(text);
+
     // Split text into chunks for human-like delivery
-    const chunks = splitTextIntoChunks(text);
+    const chunks = splitTextIntoChunks(formattedText);
 
     let lastResult: { messageId?: string; chatId?: string } = { chatId: to };
 
@@ -178,6 +221,9 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     const parsed = parseWeComTarget(to);
     const credentials = { corpId: account.corpId, secret: account.secret };
 
+    // 将 Markdown 转换为微信友好格式
+    const formattedText = text ? convertMarkdownForWeChat(text) : undefined;
+
     let result: { messageId?: string; chatId?: string } = { chatId: to };
 
     if (parsed.isKf && parsed.openKfid && parsed.externalUserId) {
@@ -188,17 +234,17 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           toUser: parsed.externalUserId,
           openKfid: parsed.openKfid,
           mediaUrl,
-          caption: text,
+          caption: formattedText,
         });
         if (mediaResult.msgid) {
           result = { messageId: mediaResult.msgid, chatId: to };
         }
-      } else if (text) {
+      } else if (formattedText) {
         const textResult = await sendWeComKfMessage({
           credentials,
           toUser: parsed.externalUserId,
           openKfid: parsed.openKfid,
-          content: text,
+          content: formattedText,
         });
         if (textResult.msgid) {
           result = { messageId: textResult.msgid, chatId: to };
@@ -212,17 +258,17 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           agentId: account.agentId,
           toUser: parsed.userId,
           mediaUrl,
-          caption: text,
+          caption: formattedText,
         });
         if (mediaResult.msgid) {
           result = { messageId: mediaResult.msgid, chatId: to };
         }
-      } else if (text) {
+      } else if (formattedText) {
         const textResult = await sendWeComMessage({
           credentials,
           agentId: account.agentId,
           toUser: parsed.userId,
-          content: text,
+          content: formattedText,
         });
         if (textResult.msgid) {
           result = { messageId: textResult.msgid, chatId: to };
@@ -284,9 +330,10 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    // Send text in chunks
+    // Send text in chunks (将 Markdown 转换为微信友好格式)
     if (payload.text) {
-      const chunks = splitTextIntoChunks(payload.text);
+      const formattedText = convertMarkdownForWeChat(payload.text);
+      const chunks = splitTextIntoChunks(formattedText);
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];

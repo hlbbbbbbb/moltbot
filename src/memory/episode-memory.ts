@@ -561,6 +561,66 @@ export interface CreateEpisodeFromRunParams {
   filesInvolved?: string[];
   errorMessage?: string;
   userFeedback?: string;
+  /** First ~200 chars of assistant's final reply text */
+  assistantSummary?: string;
+}
+
+/**
+ * Clean up raw prompt text for episode event field:
+ * - Strip [message_id: ...] tags
+ * - Strip leading/trailing whitespace
+ * - Truncate to maxLen
+ */
+function cleanEventText(raw: string, maxLen = 200): string {
+  let text = raw
+    .replace(/\[message_id:\s*[^\]]*\]/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (text.length > maxLen) {
+    text = text.slice(0, maxLen) + "...";
+  }
+  return text;
+}
+
+/**
+ * Extract file paths from tool metas more aggressively.
+ * Looks for common patterns: path=..., file=..., /Users/..., ./..., ~/...
+ */
+function extractFilesFromToolMetas(
+  toolsUsed?: Array<{ toolName: string; meta?: string }>,
+): string[] {
+  if (!toolsUsed) return [];
+  const files = new Set<string>();
+
+  for (const tool of toolsUsed) {
+    if (!tool.meta) continue;
+
+    // Pattern 1: path:"..." or file:"..." (with quotes)
+    const quotedMatches = tool.meta.matchAll(/(?:path|file|filePath)[:\s]*["']([^"']+)["']/gi);
+    for (const m of quotedMatches) {
+      if (m[1] && !m[1].startsWith("http")) files.add(m[1]);
+    }
+
+    // Pattern 2: path:value or file:value (no quotes, until whitespace/comma)
+    const unquotedMatches = tool.meta.matchAll(/(?:path|file|filePath)[:\s]*([^\s,"']+)/gi);
+    for (const m of unquotedMatches) {
+      if (m[1] && !m[1].startsWith("http") && m[1].includes("/")) files.add(m[1]);
+    }
+
+    // Pattern 3: absolute paths /Users/... or /tmp/... or ~/...
+    const absMatches = tool.meta.matchAll(/(?:\/Users\/|\/tmp\/|~\/)[^\s,"')]+/g);
+    for (const m of absMatches) {
+      files.add(m[0]);
+    }
+
+    // Pattern 4: relative paths ./...
+    const relMatches = tool.meta.matchAll(/\.\/[^\s,"')]+/g);
+    for (const m of relMatches) {
+      files.add(m[0]);
+    }
+  }
+
+  return Array.from(files);
 }
 
 /**
@@ -594,18 +654,22 @@ export function createEpisodeFromRunResult(params: CreateEpisodeFromRunParams): 
       }
     }
 
-    const allFiles = [...(params.filesInvolved || []), ...filesFromTools].filter(
-      (f, i, arr) => arr.indexOf(f) === i,
-    );
+    // Use improved file extraction from tool metas
+    const filesFromMetaImproved = extractFilesFromToolMetas(params.toolsUsed);
+    const allFiles = [
+      ...(params.filesInvolved || []),
+      ...filesFromTools,
+      ...filesFromMetaImproved,
+    ].filter((f, i, arr) => arr.indexOf(f) === i);
 
-    let event = params.prompt.slice(0, 200);
-    if (params.prompt.length > 200) {
-      event += "...";
-    }
+    // Clean event text: strip message_id tags, trim, truncate
+    const event = cleanEventText(params.prompt);
 
     const actions: string[] = [];
-    if (toolsUsed.length > 0) {
-      actions.push(`Tools: ${toolsUsed.join(", ")}`);
+    // Deduplicate tool names for readability
+    const uniqueTools = [...new Set(toolsUsed)];
+    if (uniqueTools.length > 0) {
+      actions.push(`Tools: ${uniqueTools.join(", ")}`);
     }
     if (params.aborted) {
       actions.push("Task aborted");
@@ -615,6 +679,10 @@ export function createEpisodeFromRunResult(params: CreateEpisodeFromRunParams): 
     }
     if (params.errorMessage) {
       actions.push(`Error: ${params.errorMessage.slice(0, 100)}`);
+    }
+    // Include assistant response summary for better searchability
+    if (params.assistantSummary) {
+      actions.push(`Response: ${params.assistantSummary.slice(0, 300)}`);
     }
 
     return recordEpisode(params.workspaceDir, {

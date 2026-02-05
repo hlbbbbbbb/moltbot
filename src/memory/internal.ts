@@ -34,7 +34,8 @@ export function isMemoryPath(relPath: string): boolean {
   const normalized = normalizeRelPath(relPath);
   if (!normalized) return false;
   if (normalized === "MEMORY.md" || normalized === "memory.md") return true;
-  return normalized.startsWith("memory/");
+  // Support both memory/ and summaries/ directories
+  return normalized.startsWith("memory/") || normalized.startsWith("summaries/");
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -66,10 +67,19 @@ export async function listMemoryFiles(workspaceDir: string): Promise<string[]> {
   const altMemoryFile = path.join(workspaceDir, "memory.md");
   if (await exists(memoryFile)) result.push(memoryFile);
   if (await exists(altMemoryFile)) result.push(altMemoryFile);
+
+  // Scan memory/ directory
   const memoryDir = path.join(workspaceDir, "memory");
   if (await exists(memoryDir)) {
     await walkDir(memoryDir, result);
   }
+
+  // Scan summaries/ directory (AI-generated session summaries)
+  const summariesDir = path.join(workspaceDir, "summaries");
+  if (await exists(summariesDir)) {
+    await walkDir(summariesDir, result);
+  }
+
   if (result.length <= 1) return result;
   const seen = new Set<string>();
   const deduped: string[] = [];

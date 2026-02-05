@@ -9,6 +9,7 @@ import { applyGoogleGeminiModelDefault } from "../../google-gemini-model-default
 import {
   applyAuthProfileConfig,
   applyKimiCodeConfig,
+  applyKimiConfig,
   applyMinimaxApiConfig,
   applyMinimaxConfig,
   applyMoonshotConfig,
@@ -20,6 +21,7 @@ import {
   applyZaiConfig,
   setAnthropicApiKey,
   setGeminiApiKey,
+  setKimiApiKey,
   setKimiCodeApiKey,
   setMinimaxApiKey,
   setMoonshotApiKey,
@@ -250,6 +252,25 @@ export async function applyNonInteractiveAuthChoice(params: {
       mode: "api_key",
     });
     return applyMoonshotConfig(nextConfig);
+  }
+
+  if (authChoice === "kimi-api-key") {
+    const resolved = await resolveNonInteractiveApiKey({
+      provider: "kimi",
+      cfg: baseConfig,
+      flagValue: opts.kimiApiKey,
+      flagName: "--kimi-api-key",
+      envVar: "KIMI_API_KEY",
+      runtime,
+    });
+    if (!resolved) return null;
+    if (resolved.source !== "profile") await setKimiApiKey(resolved.key);
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "kimi:default",
+      provider: "kimi",
+      mode: "api_key",
+    });
+    return applyKimiConfig(nextConfig);
   }
 
   if (authChoice === "kimi-code-api-key") {

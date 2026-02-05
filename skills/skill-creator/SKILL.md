@@ -21,6 +21,28 @@ equipped with procedural knowledge that no model can fully possess.
 3. Domain expertise - Company-specific knowledge, schemas, business logic
 4. Bundled resources - Scripts, references, and assets for complex and repetitive tasks
 
+### Where Skills Live (Clawdbot)
+
+Skills must be placed in the **Clawdbot source skills directory** to be discovered and loaded:
+
+```
+/path/to/clawdbot-source/skills/your-skill-name/
+```
+
+**Why this matters:**
+
+- Only skills in this directory appear in `<available_skills>` in the system prompt
+- Skills placed elsewhere (e.g., workspace `~/clawd/skills/`) will NOT be discovered
+- This is a prerequisite for progressive loading to work (metadata → SKILL.md → resources)
+
+**When using `init_skill.py`**, set `--path` to the Clawdbot skills directory:
+
+```bash
+scripts/init_skill.py my-skill --path /path/to/clawdbot-source/skills
+```
+
+**Tip:** Find your skills directory by checking `<available_skills>` locations in the system prompt, or ask Clawdbot directly.
+
 ## Core Principles
 
 ### Concise is Key

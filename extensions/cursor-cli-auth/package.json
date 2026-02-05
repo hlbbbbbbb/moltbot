@@ -1,0 +1,20 @@
+{
+  "name": "@clawdbot/cursor-cli-auth",
+  "version": "1.0.0",
+  "description": "Cursor CLI OAuth authentication plugin for Clawdbot",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "keywords": [
+    "clawdbot",
+    "cursor",
+    "oauth",
+    "authentication"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "clawdbot": "*"
+  }
+}

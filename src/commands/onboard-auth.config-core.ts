@@ -18,10 +18,14 @@ import {
 } from "./onboard-auth.credentials.js";
 import {
   buildKimiCodeModelDefinition,
+  buildKimiModelDefinition,
   buildMoonshotModelDefinition,
+  KIMI_BASE_URL,
   KIMI_CODE_BASE_URL,
   KIMI_CODE_MODEL_ID,
   KIMI_CODE_MODEL_REF,
+  KIMI_DEFAULT_MODEL_ID,
+  KIMI_DEFAULT_MODEL_REF,
   MOONSHOT_BASE_URL,
   MOONSHOT_DEFAULT_MODEL_ID,
   MOONSHOT_DEFAULT_MODEL_REF,
@@ -261,6 +265,71 @@ export function applyKimiCodeConfig(cfg: ClawdbotConfig): ClawdbotConfig {
               }
             : undefined),
           primary: KIMI_CODE_MODEL_REF,
+        },
+      },
+    },
+  };
+}
+
+export function applyKimiProviderConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  models[KIMI_DEFAULT_MODEL_REF] = {
+    ...models[KIMI_DEFAULT_MODEL_REF],
+    alias: models[KIMI_DEFAULT_MODEL_REF]?.alias ?? "Kimi (中国版)",
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers.kimi;
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const defaultModel = buildKimiModelDefinition();
+  const hasDefaultModel = existingModels.some((model) => model.id === KIMI_DEFAULT_MODEL_ID);
+  const mergedModels = hasDefaultModel ? existingModels : [...existingModels, defaultModel];
+  const { apiKey: existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
+    string,
+    unknown
+  > as { apiKey?: string };
+  const resolvedApiKey = typeof existingApiKey === "string" ? existingApiKey : undefined;
+  const normalizedApiKey = resolvedApiKey?.trim();
+  providers.kimi = {
+    ...existingProviderRest,
+    baseUrl: KIMI_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : [defaultModel],
+  };
+
+  return {
+    ...cfg,
+    agents: {
+      ...cfg.agents,
+      defaults: {
+        ...cfg.agents?.defaults,
+        models,
+      },
+    },
+    models: {
+      mode: cfg.models?.mode ?? "merge",
+      providers,
+    },
+  };
+}
+
+export function applyKimiConfig(cfg: ClawdbotConfig): ClawdbotConfig {
+  const next = applyKimiProviderConfig(cfg);
+  const existingModel = next.agents?.defaults?.model;
+  return {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: {
+          ...(existingModel && "fallbacks" in (existingModel as Record<string, unknown>)
+            ? {
+                fallbacks: (existingModel as { fallbacks?: string[] }).fallbacks,
+              }
+            : undefined),
+          primary: KIMI_DEFAULT_MODEL_REF,
         },
       },
     },

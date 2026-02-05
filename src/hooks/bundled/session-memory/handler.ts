@@ -1,8 +1,8 @@
 /**
  * Session memory hook handler
  *
- * Saves session context to memory when /new command is triggered
- * Creates a new dated memory file with LLM-generated slug
+ * Saves AI-generated session summaries when /new or /reset command is triggered
+ * Creates structured summaries in summaries/ directory for better memory quality
  */
 
 import fs from "node:fs/promises";
@@ -11,35 +11,76 @@ import os from "node:os";
 import type { ClawdbotConfig } from "../../../config/config.js";
 import { resolveAgentWorkspaceDir } from "../../../agents/agent-scope.js";
 import { resolveAgentIdFromSessionKey } from "../../../routing/session-key.js";
+import { resolveSessionTranscriptsDirForAgent } from "../../../config/sessions/paths.js";
 import type { HookHandler } from "../../hooks.js";
 
 /**
- * Read recent messages from session file for slug generation
+ * Find the most recently modified session file, excluding the current new session.
+ * This is more reliable than depending on sessionStore which may be stale.
  */
-async function getRecentSessionContent(sessionFilePath: string): Promise<string | null> {
+async function findPreviousSessionFile(
+  agentId: string,
+  currentSessionId?: string,
+): Promise<{ path: string; sessionId: string } | null> {
+  try {
+    const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
+    const files = await fs.readdir(sessionsDir);
+    const jsonlFiles = files.filter((f) => f.endsWith(".jsonl"));
+
+    // Get stats for all session files
+    const fileStats = await Promise.all(
+      jsonlFiles.map(async (file) => {
+        const filePath = path.join(sessionsDir, file);
+        try {
+          const stat = await fs.stat(filePath);
+          const sessionId = file.replace(".jsonl", "");
+          return { file, filePath, sessionId, mtimeMs: stat.mtimeMs };
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    // Filter out nulls and current session, sort by mtime descending
+    const validFiles = fileStats
+      .filter((f): f is NonNullable<typeof f> => f !== null)
+      .filter((f) => !currentSessionId || f.sessionId !== currentSessionId)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    if (validFiles.length === 0) return null;
+
+    // Return the most recently modified session file
+    const mostRecent = validFiles[0];
+    return { path: mostRecent.filePath, sessionId: mostRecent.sessionId };
+  } catch (err) {
+    console.error("[session-memory] Error finding previous session:", err);
+    return null;
+  }
+}
+
+/**
+ * Read full session content from JSONL file
+ */
+async function getFullSessionContent(sessionFilePath: string): Promise<string | null> {
   try {
     const content = await fs.readFile(sessionFilePath, "utf-8");
     const lines = content.trim().split("\n");
 
-    // Get last 15 lines (recent conversation)
-    const recentLines = lines.slice(-15);
-
-    // Parse JSONL and extract messages
     const messages: string[] = [];
-    for (const line of recentLines) {
+    for (const line of lines) {
       try {
         const entry = JSON.parse(line);
-        // Session files have entries with type="message" containing a nested message object
         if (entry.type === "message" && entry.message) {
           const msg = entry.message;
           const role = msg.role;
           if ((role === "user" || role === "assistant") && msg.content) {
-            // Extract text content
             const text = Array.isArray(msg.content)
               ? msg.content.find((c: any) => c.type === "text")?.text
               : msg.content;
             if (text && !text.startsWith("/")) {
-              messages.push(`${role}: ${text}`);
+              // Truncate long messages (e.g. code blocks) but keep enough context
+              const truncated = text.length > 2000 ? text.slice(0, 2000) + "..." : text;
+              messages.push(`${role}: ${truncated}`);
             }
           }
         }
@@ -48,23 +89,23 @@ async function getRecentSessionContent(sessionFilePath: string): Promise<string 
       }
     }
 
-    return messages.join("\n");
+    return messages.join("\n\n");
   } catch {
     return null;
   }
 }
 
 /**
- * Save session context to memory when /new command is triggered
+ * Save session summary to memory when /new or /reset command is triggered
  */
 const saveSessionToMemory: HookHandler = async (event) => {
-  // Only trigger on 'new' command
+  // Trigger only on 'new' command (reset is for discarding sessions without saving)
   if (event.type !== "command" || event.action !== "new") {
     return;
   }
 
   try {
-    console.log("[session-memory] Hook triggered for /new command");
+    console.log(`[session-memory] Hook triggered for /${event.action} command`);
 
     const context = event.context || {};
     const cfg = context.cfg as ClawdbotConfig | undefined;
@@ -72,97 +113,104 @@ const saveSessionToMemory: HookHandler = async (event) => {
     const workspaceDir = cfg
       ? resolveAgentWorkspaceDir(cfg, agentId)
       : path.join(os.homedir(), "clawd");
-    const memoryDir = path.join(workspaceDir, "memory");
-    await fs.mkdir(memoryDir, { recursive: true });
 
-    // Get today's date for filename
+    // Use summaries/ directory for AI-generated summaries
+    const summariesDir = path.join(workspaceDir, "summaries");
+    await fs.mkdir(summariesDir, { recursive: true });
+
     const now = new Date(event.timestamp);
     const dateStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
+    const timeStr = now.toISOString().split("T")[1]!.split(".")[0]!.replace(/:/g, "");
 
-    // Generate descriptive slug from session using LLM
+    // Get session file path - prefer direct disk lookup for reliability
     const sessionEntry = (context.previousSessionEntry || context.sessionEntry || {}) as Record<
       string,
       unknown
     >;
-    const currentSessionId = sessionEntry.sessionId as string;
-    const currentSessionFile = sessionEntry.sessionFile as string;
+    const newSessionId = (context.sessionEntry as Record<string, unknown> | undefined)?.sessionId as
+      | string
+      | undefined;
+    const source = (context.commandSource as string) || "unknown";
 
-    console.log("[session-memory] Current sessionId:", currentSessionId);
-    console.log("[session-memory] Current sessionFile:", currentSessionFile);
-    console.log("[session-memory] cfg present:", !!cfg);
+    // Try to find the previous session file from disk (more reliable than sessionStore)
+    let currentSessionFile: string | undefined;
+    let sessionId: string = "unknown";
 
-    const sessionFile = currentSessionFile || undefined;
+    const previousSession = await findPreviousSessionFile(agentId, newSessionId);
+    if (previousSession) {
+      currentSessionFile = previousSession.path;
+      sessionId = previousSession.sessionId;
+      console.log("[session-memory] Found previous session from disk:", currentSessionFile);
+    } else {
+      // Fallback to sessionEntry (legacy behavior)
+      currentSessionFile = sessionEntry.sessionFile as string | undefined;
+      sessionId = (sessionEntry.sessionId as string) || "unknown";
+      console.log("[session-memory] Using sessionEntry fallback:", currentSessionFile);
+    }
 
-    let slug: string | null = null;
-    let sessionContent: string | null = null;
+    if (!currentSessionFile) {
+      console.log("[session-memory] No session file found, skipping");
+      return;
+    }
 
-    if (sessionFile) {
-      // Get recent conversation content
-      sessionContent = await getRecentSessionContent(sessionFile);
-      console.log("[session-memory] sessionContent length:", sessionContent?.length || 0);
+    // Read full session content
+    const sessionContent = await getFullSessionContent(currentSessionFile);
+    if (!sessionContent || sessionContent.length < 100) {
+      console.log("[session-memory] Session too short, skipping summary generation");
+      return;
+    }
 
-      if (sessionContent && cfg) {
-        console.log("[session-memory] Calling generateSlugViaLLM...");
-        // Dynamically import the LLM slug generator (avoids module caching issues)
-        // When compiled, handler is at dist/hooks/bundled/session-memory/handler.js
-        // Going up ../.. puts us at dist/hooks/, so just add llm-slug-generator.js
+    console.log("[session-memory] Session content length:", sessionContent.length);
+
+    let slug = timeStr.slice(0, 4); // Default to HHMM
+    let title = "Session Summary";
+    let summary = "";
+
+    if (cfg) {
+      try {
+        console.log("[session-memory] Generating summary via LLM...");
+
+        // Dynamically import summary generator
         const clawdbotRoot = path.resolve(
           path.dirname(import.meta.url.replace("file://", "")),
           "../..",
         );
-        const slugGenPath = path.join(clawdbotRoot, "llm-slug-generator.js");
-        const { generateSlugViaLLM } = await import(slugGenPath);
+        const summaryGenPath = path.join(clawdbotRoot, "llm-summary-generator.js");
+        const { generateSummaryViaLLM } = await import(summaryGenPath);
 
-        // Use LLM to generate a descriptive slug
-        slug = await generateSlugViaLLM({ sessionContent, cfg });
-        console.log("[session-memory] Generated slug:", slug);
+        const result = await generateSummaryViaLLM({ sessionContent, cfg });
+
+        if (result) {
+          slug = result.slug || slug;
+          title = result.title || title;
+          summary = result.summary || "";
+          console.log("[session-memory] Generated summary with slug:", slug);
+        }
+      } catch (err) {
+        console.error("[session-memory] Summary generation failed:", err);
       }
     }
 
-    // If no slug, use timestamp
-    if (!slug) {
-      const timeSlug = now.toISOString().split("T")[1]!.split(".")[0]!.replace(/:/g, "");
-      slug = timeSlug.slice(0, 4); // HHMM
-      console.log("[session-memory] Using fallback timestamp slug:", slug);
-    }
-
-    // Create filename with date and slug
+    // Build Markdown file content
     const filename = `${dateStr}-${slug}.md`;
-    const memoryFilePath = path.join(memoryDir, filename);
-    console.log("[session-memory] Generated filename:", filename);
-    console.log("[session-memory] Full path:", memoryFilePath);
+    const summaryFilePath = path.join(summariesDir, filename);
 
-    // Format time as HH:MM:SS UTC
-    const timeStr = now.toISOString().split("T")[1]!.split(".")[0];
-
-    // Extract context details
-    const sessionId = (sessionEntry.sessionId as string) || "unknown";
-    const source = (context.commandSource as string) || "unknown";
-
-    // Build Markdown entry
-    const entryParts = [
-      `# Session: ${dateStr} ${timeStr} UTC`,
+    const markdownContent = [
+      `# ${title}`,
       "",
-      `- **Session Key**: ${event.sessionKey}`,
-      `- **Session ID**: ${sessionId}`,
-      `- **Source**: ${source}`,
+      `> Date: ${dateStr} ${timeStr.slice(0, 2)}:${timeStr.slice(2, 4)} | Session: \`${sessionId.slice(0, 8)}\` | Source: ${source}`,
       "",
-    ];
+      summary || "(Failed to generate summary)",
+      "",
+      "---",
+      `*Original session: \`~/.clawdbot/agents/${agentId}/sessions/${path.basename(currentSessionFile)}\`*`,
+    ].join("\n");
 
-    // Include conversation content if available
-    if (sessionContent) {
-      entryParts.push("## Conversation Summary", "", sessionContent, "");
-    }
+    // Write summary file
+    await fs.writeFile(summaryFilePath, markdownContent, "utf-8");
 
-    const entry = entryParts.join("\n");
-
-    // Write to new memory file
-    await fs.writeFile(memoryFilePath, entry, "utf-8");
-    console.log("[session-memory] Memory file written successfully");
-
-    // Log completion (but don't send user-visible confirmation - it's internal housekeeping)
-    const relPath = memoryFilePath.replace(os.homedir(), "~");
-    console.log(`[session-memory] Session context saved to ${relPath}`);
+    const relPath = summaryFilePath.replace(os.homedir(), "~");
+    console.log(`[session-memory] Summary saved to ${relPath}`);
   } catch (err) {
     console.error(
       "[session-memory] Failed to save session memory:",

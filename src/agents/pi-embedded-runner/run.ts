@@ -625,6 +625,15 @@ export async function runEmbeddedPiAgent(
           // Record episode and add to memory index for consolidation tracking
           try {
             const agentId = params.sessionKey?.split(":")[0] ?? "main";
+            // Extract assistant reply summary for episode context
+            const assistantSummary = (() => {
+              const texts = attempt.assistantTexts;
+              if (!texts || texts.length === 0) return undefined;
+              const lastText = texts[texts.length - 1];
+              if (!lastText || typeof lastText !== "string") return undefined;
+              return lastText.slice(0, 300);
+            })();
+
             const episode = createEpisodeFromRunResult({
               workspaceDir: params.workspaceDir,
               sessionId: params.sessionId,
@@ -636,19 +645,30 @@ export async function runEmbeddedPiAgent(
               durationMs: Date.now() - started,
               toolsUsed: attempt.toolMetas,
               errorMessage: attempt.lastToolError?.error,
+              assistantSummary,
             });
 
             if (episode) {
+              // Build richer content for memory index (combines event + response for better search)
+              const memoryContent = assistantSummary
+                ? `Q: ${episode.event}\nA: ${assistantSummary.slice(0, 150)}`
+                : episode.event;
+              const contextParts: string[] = [];
+              if (episode.files.length > 0) {
+                contextParts.push(`files: ${episode.files.slice(0, 5).join(", ")}`);
+              }
+              if (episode.toolsUsed && episode.toolsUsed.length > 0) {
+                const uniqueTools = [...new Set(episode.toolsUsed)];
+                contextParts.push(`tools: ${uniqueTools.join(", ")}`);
+              }
+
               // Add to memory index for recall tracking
               addMemoryItem(params.workspaceDir, {
-                content: episode.event,
+                content: memoryContent,
                 type: "episode",
                 importance: episode.outcome === "success" ? 5 : 3,
                 source: `episode:${episode.id}`,
-                context:
-                  episode.files.length > 0
-                    ? `files: ${episode.files.slice(0, 3).join(", ")}`
-                    : undefined,
+                context: contextParts.length > 0 ? contextParts.join(" | ") : undefined,
               });
 
               // Initialize scheduler for this agent (if not already running)

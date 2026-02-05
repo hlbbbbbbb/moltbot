@@ -20,6 +20,15 @@ export const KIMI_CODE_MAX_TOKENS = 32768;
 export const KIMI_CODE_HEADERS = { "User-Agent": "KimiCLI/0.77" } as const;
 export const KIMI_CODE_COMPAT = { supportsDeveloperRole: false } as const;
 
+// Kimi API (中国版) - https://platform.moonshot.cn
+export const KIMI_BASE_URL = "https://api.moonshot.cn/v1";
+export const KIMI_DEFAULT_MODEL_ID = "kimi-k2.5";
+export const KIMI_DEFAULT_MODEL_REF = `kimi/${KIMI_DEFAULT_MODEL_ID}`;
+export const KIMI_DEFAULT_CONTEXT_WINDOW = 262144;
+export const KIMI_DEFAULT_MAX_TOKENS = 32768;
+// Kimi API 不支持 OpenAI 的 developer role，需要使用 system role
+export const KIMI_COMPAT = { supportsDeveloperRole: false } as const;
+
 // Pricing: MiniMax doesn't publish public rates. Override in models.json for accurate costs.
 export const MINIMAX_API_COST = {
   input: 15,
@@ -49,6 +58,14 @@ export const KIMI_CODE_DEFAULT_COST = {
   input: 0,
   output: 0,
   cacheRead: 0,
+  cacheWrite: 0,
+};
+// Kimi K2.5 定价 (per 1M tokens, CNY -> USD approximation)
+// 输入: ￥4/M (缓存未命中), ￥0.7/M (缓存命中), 输出: ￥21/M
+export const KIMI_DEFAULT_COST = {
+  input: 0.56,
+  output: 2.94,
+  cacheRead: 0.1,
   cacheWrite: 0,
 };
 
@@ -114,5 +131,18 @@ export function buildKimiCodeModelDefinition(): ModelDefinitionConfig {
     maxTokens: KIMI_CODE_MAX_TOKENS,
     headers: KIMI_CODE_HEADERS,
     compat: KIMI_CODE_COMPAT,
+  };
+}
+
+export function buildKimiModelDefinition(): ModelDefinitionConfig {
+  return {
+    id: KIMI_DEFAULT_MODEL_ID,
+    name: "Kimi K2.5",
+    reasoning: true,
+    input: ["text", "image", "video"],
+    cost: KIMI_DEFAULT_COST,
+    contextWindow: KIMI_DEFAULT_CONTEXT_WINDOW,
+    maxTokens: KIMI_DEFAULT_MAX_TOKENS,
+    compat: KIMI_COMPAT,
   };
 }

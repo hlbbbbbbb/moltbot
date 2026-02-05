@@ -20,10 +20,10 @@ function ensureCacheForRegistry(registry: PluginRegistry | null) {
 export async function loadChannelOutboundAdapter(
   id: ChannelId,
 ): Promise<ChannelOutboundAdapter | undefined> {
-  // WeCom outbound - disabled, AI doesn't use it correctly yet
-  // if (id === "wecom" || id === "wecom-kf") {
-  //   return wecomOutbound;
-  // }
+  // WeCom outbound adapter
+  if (id === "wecom" || id === "wecom-kf") {
+    return wecomOutbound;
+  }
 
   const registry = getActivePluginRegistry();
   ensureCacheForRegistry(registry);

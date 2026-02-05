@@ -15,6 +15,8 @@ import {
   applyAuthProfileConfig,
   applyKimiCodeConfig,
   applyKimiCodeProviderConfig,
+  applyKimiConfig,
+  applyKimiProviderConfig,
   applyMoonshotConfig,
   applyMoonshotProviderConfig,
   applyOpencodeZenConfig,
@@ -29,12 +31,14 @@ import {
   applyVercelAiGatewayProviderConfig,
   applyZaiConfig,
   KIMI_CODE_MODEL_REF,
+  KIMI_DEFAULT_MODEL_REF,
   MOONSHOT_DEFAULT_MODEL_REF,
   OPENROUTER_DEFAULT_MODEL_REF,
   SYNTHETIC_DEFAULT_MODEL_REF,
   VENICE_DEFAULT_MODEL_REF,
   VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF,
   setGeminiApiKey,
+  setKimiApiKey,
   setKimiCodeApiKey,
   setMoonshotApiKey,
   setOpencodeZenApiKey,
@@ -73,6 +77,8 @@ export async function applyAuthChoiceApiProviders(
       authChoice = "ai-gateway-api-key";
     } else if (params.opts.tokenProvider === "moonshot") {
       authChoice = "moonshot-api-key";
+    } else if (params.opts.tokenProvider === "kimi") {
+      authChoice = "kimi-api-key";
     } else if (params.opts.tokenProvider === "kimi-code") {
       authChoice = "kimi-code-api-key";
     } else if (params.opts.tokenProvider === "google") {
@@ -256,6 +262,64 @@ export async function applyAuthChoiceApiProviders(
         defaultModel: MOONSHOT_DEFAULT_MODEL_REF,
         applyDefaultConfig: applyMoonshotConfig,
         applyProviderConfig: applyMoonshotProviderConfig,
+        noteAgentModel,
+        prompter: params.prompter,
+      });
+      nextConfig = applied.config;
+      agentModelOverride = applied.agentModelOverride ?? agentModelOverride;
+    }
+    return { config: nextConfig, agentModelOverride };
+  }
+
+  if (authChoice === "kimi-api-key") {
+    let hasCredential = false;
+
+    if (!hasCredential && params.opts?.token && params.opts?.tokenProvider === "kimi") {
+      await setKimiApiKey(normalizeApiKeyInput(params.opts.token), params.agentDir);
+      hasCredential = true;
+    }
+
+    if (!hasCredential) {
+      await params.prompter.note(
+        [
+          "Kimi API (中国版) 使用 api.moonshot.cn 服务。",
+          "Get your API key at: https://platform.moonshot.cn/console/api-keys",
+        ].join("\n"),
+        "Kimi API (中国版)",
+      );
+    }
+
+    const envKey = resolveEnvApiKey("kimi");
+    if (envKey) {
+      const useExisting = await params.prompter.confirm({
+        message: `Use existing KIMI_API_KEY (${envKey.source}, ${formatApiKeyPreview(envKey.apiKey)})?`,
+        initialValue: true,
+      });
+      if (useExisting) {
+        await setKimiApiKey(envKey.apiKey, params.agentDir);
+        hasCredential = true;
+      }
+    }
+    if (!hasCredential) {
+      const key = await params.prompter.text({
+        message: "Enter Kimi API key (中国版)",
+        validate: validateApiKeyInput,
+      });
+      await setKimiApiKey(normalizeApiKeyInput(String(key)), params.agentDir);
+    }
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "kimi:default",
+      provider: "kimi",
+      mode: "api_key",
+    });
+    {
+      const applied = await applyDefaultModelChoice({
+        config: nextConfig,
+        setDefaultModel: params.setDefaultModel,
+        defaultModel: KIMI_DEFAULT_MODEL_REF,
+        applyDefaultConfig: applyKimiConfig,
+        applyProviderConfig: applyKimiProviderConfig,
+        noteDefault: KIMI_DEFAULT_MODEL_REF,
         noteAgentModel,
         prompter: params.prompter,
       });

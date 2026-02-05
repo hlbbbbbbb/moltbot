@@ -1,0 +1,11 @@
+{
+  "id": "cursor-cli-auth",
+  "providers": [
+    "cursor-cli"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

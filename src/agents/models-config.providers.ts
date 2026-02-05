@@ -53,6 +53,19 @@ const KIMI_CODE_DEFAULT_COST = {
   cacheWrite: 0,
 };
 
+// Kimi API (中国版) - https://platform.moonshot.cn/v1
+const KIMI_BASE_URL = "https://api.moonshot.cn/v1";
+const KIMI_DEFAULT_MODEL_ID = "kimi-k2-0905-preview";
+const KIMI_DEFAULT_CONTEXT_WINDOW = 131072;
+const KIMI_DEFAULT_MAX_TOKENS = 8192;
+// Kimi API 中国版定价 (per 1M tokens, CNY -> USD approximation)
+const KIMI_DEFAULT_COST = {
+  input: 1.4,
+  output: 4.2,
+  cacheRead: 0.14,
+  cacheWrite: 0,
+};
+
 const QWEN_PORTAL_BASE_URL = "https://portal.qwen.ai/v1";
 const QWEN_PORTAL_OAUTH_PLACEHOLDER = "qwen-oauth";
 const QWEN_PORTAL_DEFAULT_CONTEXT_WINDOW = 128000;
@@ -306,6 +319,76 @@ function buildKimiCodeProvider(): ProviderConfig {
   };
 }
 
+// Kimi K2.5 定价 (per 1M tokens, CNY -> USD approximation)
+// 输入: ￥4/M (缓存未命中), ￥0.7/M (缓存命中), 输出: ￥21/M
+const KIMI_K25_COST = {
+  input: 0.56,
+  output: 2.94,
+  cacheRead: 0.1,
+  cacheWrite: 0,
+};
+// Kimi API 不支持 OpenAI 的 developer role，需要使用 system role
+const KIMI_COMPAT = { supportsDeveloperRole: false } as const;
+
+function buildKimiProvider(): ProviderConfig {
+  return {
+    baseUrl: KIMI_BASE_URL,
+    api: "openai-completions",
+    models: [
+      {
+        id: "kimi-k2.5",
+        name: "Kimi K2.5",
+        reasoning: true,
+        input: ["text", "image", "video"],
+        cost: KIMI_K25_COST,
+        contextWindow: 262144,
+        maxTokens: 32768,
+        compat: KIMI_COMPAT,
+      },
+      {
+        id: KIMI_DEFAULT_MODEL_ID,
+        name: "Kimi K2 0905 Preview",
+        reasoning: false,
+        input: ["text"],
+        cost: KIMI_DEFAULT_COST,
+        contextWindow: KIMI_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: KIMI_DEFAULT_MAX_TOKENS,
+        compat: KIMI_COMPAT,
+      },
+      {
+        id: "kimi-k2-turbo-preview",
+        name: "Kimi K2 Turbo Preview",
+        reasoning: false,
+        input: ["text"],
+        cost: KIMI_DEFAULT_COST,
+        contextWindow: KIMI_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: KIMI_DEFAULT_MAX_TOKENS,
+        compat: KIMI_COMPAT,
+      },
+      {
+        id: "kimi-k2-thinking",
+        name: "Kimi K2 Thinking",
+        reasoning: true,
+        input: ["text"],
+        cost: KIMI_DEFAULT_COST,
+        contextWindow: KIMI_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: KIMI_DEFAULT_MAX_TOKENS,
+        compat: KIMI_COMPAT,
+      },
+      {
+        id: "kimi-latest",
+        name: "Kimi Latest",
+        reasoning: false,
+        input: ["text", "image"],
+        cost: KIMI_DEFAULT_COST,
+        contextWindow: KIMI_DEFAULT_CONTEXT_WINDOW,
+        maxTokens: KIMI_DEFAULT_MAX_TOKENS,
+        compat: KIMI_COMPAT,
+      },
+    ],
+  };
+}
+
 function buildQwenPortalProvider(): ProviderConfig {
   return {
     baseUrl: QWEN_PORTAL_BASE_URL,
@@ -386,6 +469,13 @@ export async function resolveImplicitProviders(params: {
     resolveApiKeyFromProfiles({ provider: "kimi-code", store: authStore });
   if (kimiCodeKey) {
     providers["kimi-code"] = { ...buildKimiCodeProvider(), apiKey: kimiCodeKey };
+  }
+
+  const kimiKey =
+    resolveEnvApiKeyVarName("kimi") ??
+    resolveApiKeyFromProfiles({ provider: "kimi", store: authStore });
+  if (kimiKey) {
+    providers.kimi = { ...buildKimiProvider(), apiKey: kimiKey };
   }
 
   const syntheticKey =

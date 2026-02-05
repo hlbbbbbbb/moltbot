@@ -86,6 +86,20 @@ export async function setKimiCodeApiKey(key: string, agentDir?: string) {
   });
 }
 
+export async function setKimiApiKey(key: string, agentDir?: string) {
+  // Write to resolved agent dir so gateway finds credentials on startup.
+  // Kimi API (中国版) - https://platform.moonshot.cn
+  upsertAuthProfile({
+    profileId: "kimi:default",
+    credential: {
+      type: "api_key",
+      provider: "kimi",
+      key,
+    },
+    agentDir: resolveAuthAgentDir(agentDir),
+  });
+}
+
 export async function setSyntheticApiKey(key: string, agentDir?: string) {
   // Write to resolved agent dir so gateway finds credentials on startup.
   upsertAuthProfile({

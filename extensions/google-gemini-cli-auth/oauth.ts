@@ -2,8 +2,23 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import { delimiter, dirname, join } from "node:path";
+import { ProxyAgent } from "undici";
 
 const CLIENT_ID_KEYS = ["CLAWDBOT_GEMINI_OAUTH_CLIENT_ID", "GEMINI_CLI_OAUTH_CLIENT_ID"];
+
+function getProxyUrl(): string | undefined {
+  return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY;
+}
+
+function makeProxyFetch(): typeof fetch {
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return fetch;
+  const agent = new ProxyAgent(proxyUrl);
+  return (input: RequestInfo | URL, init?: RequestInit) => {
+    const base = init ? { ...init } : {};
+    return fetch(input, { ...base, dispatcher: agent } as RequestInit);
+  };
+}
 const CLIENT_SECRET_KEYS = [
   "CLAWDBOT_GEMINI_OAUTH_CLIENT_SECRET",
   "GEMINI_CLI_OAUTH_CLIENT_SECRET",
@@ -312,7 +327,8 @@ async function exchangeCodeForTokens(code: string, verifier: string): Promise<Ge
     body.set("client_secret", clientSecret);
   }
 
-  const response = await fetch(TOKEN_URL, {
+  const proxyFetch = makeProxyFetch();
+  const response = await proxyFetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -348,7 +364,8 @@ async function exchangeCodeForTokens(code: string, verifier: string): Promise<Ge
 
 async function getUserEmail(accessToken: string): Promise<string | undefined> {
   try {
-    const response = await fetch(USERINFO_URL, {
+    const proxyFetch = makeProxyFetch();
+    const response = await proxyFetch(USERINFO_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (response.ok) {
@@ -386,8 +403,9 @@ async function discoverProject(accessToken: string): Promise<string> {
     allowedTiers?: Array<{ id?: string; isDefault?: boolean }>;
   } = {};
 
+  const proxyFetch = makeProxyFetch();
   try {
-    const response = await fetch(`${CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist`, {
+    const response = await proxyFetch(`${CODE_ASSIST_ENDPOINT}/v1internal:loadCodeAssist`, {
       method: "POST",
       headers,
       body: JSON.stringify(loadBody),
@@ -441,7 +459,7 @@ async function discoverProject(accessToken: string): Promise<string> {
     (onboardBody.metadata as Record<string, unknown>).duetProject = envProject;
   }
 
-  const onboardResponse = await fetch(`${CODE_ASSIST_ENDPOINT}/v1internal:onboardUser`, {
+  const onboardResponse = await proxyFetch(`${CODE_ASSIST_ENDPOINT}/v1internal:onboardUser`, {
     method: "POST",
     headers,
     body: JSON.stringify(onboardBody),
@@ -493,9 +511,10 @@ async function pollOperation(
   operationName: string,
   headers: Record<string, string>,
 ): Promise<{ done?: boolean; response?: { cloudaicompanionProject?: { id?: string } } }> {
+  const proxyFetch = makeProxyFetch();
   for (let attempt = 0; attempt < 24; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    const response = await fetch(`${CODE_ASSIST_ENDPOINT}/v1internal/${operationName}`, {
+    const response = await proxyFetch(`${CODE_ASSIST_ENDPOINT}/v1internal/${operationName}`, {
       headers,
     });
     if (!response.ok) continue;

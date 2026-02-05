@@ -12,9 +12,11 @@ export type AuthChoiceGroupId =
   | "anthropic"
   | "google"
   | "copilot"
+  | "cursor"
   | "openrouter"
   | "ai-gateway"
   | "moonshot"
+  | "kimi"
   | "zai"
   | "opencode-zen"
   | "minimax"
@@ -84,6 +86,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     choices: ["github-copilot", "copilot-proxy"],
   },
   {
+    value: "cursor",
+    label: "Cursor",
+    hint: "OAuth (multi-model access)",
+    choices: ["cursor-cli"],
+  },
+  {
     value: "openrouter",
     label: "OpenRouter",
     hint: "API key",
@@ -97,9 +105,15 @@ const AUTH_CHOICE_GROUP_DEFS: {
   },
   {
     value: "moonshot",
-    label: "Moonshot AI",
+    label: "Moonshot AI (Global)",
     hint: "Kimi K2 + Kimi Code",
     choices: ["moonshot-api-key", "kimi-code-api-key"],
+  },
+  {
+    value: "kimi",
+    label: "Kimi (中国版)",
+    hint: "api.moonshot.cn",
+    choices: ["kimi-api-key"],
   },
   {
     value: "zai",
@@ -139,7 +153,12 @@ export function buildAuthChoiceOptions(params: {
     value: "ai-gateway-api-key",
     label: "Vercel AI Gateway API key",
   });
-  options.push({ value: "moonshot-api-key", label: "Moonshot AI API key" });
+  options.push({ value: "moonshot-api-key", label: "Moonshot AI API key (Global)" });
+  options.push({
+    value: "kimi-api-key",
+    label: "Kimi API key (中国版)",
+    hint: "api.moonshot.cn",
+  });
   options.push({ value: "kimi-code-api-key", label: "Kimi Code API key" });
   options.push({ value: "synthetic-api-key", label: "Synthetic API key" });
   options.push({
@@ -169,6 +188,11 @@ export function buildAuthChoiceOptions(params: {
     value: "copilot-proxy",
     label: "Copilot Proxy (local)",
     hint: "Local proxy for VS Code Copilot models",
+  });
+  options.push({
+    value: "cursor-cli",
+    label: "Cursor CLI OAuth",
+    hint: "Sign in with your Cursor account (multi-model access)",
   });
   options.push({ value: "apiKey", label: "Anthropic API key" });
   // Token flow is currently Anthropic-only; use CLI for advanced providers.

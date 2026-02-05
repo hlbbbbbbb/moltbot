@@ -1,5 +1,6 @@
 import { getOAuthApiKey, type OAuthCredentials, type OAuthProvider } from "@mariozechner/pi-ai";
 import lockfile from "proper-lockfile";
+import { ProxyAgent } from "undici";
 
 import type { ClawdbotConfig } from "../../config/config.js";
 import { refreshChutesTokens } from "../chutes-oauth.js";
@@ -10,6 +11,66 @@ import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
 import type { AuthProfileStore } from "./types.js";
+
+// Google OAuth constants (extracted from Gemini CLI)
+const GOOGLE_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
+const GOOGLE_CLIENT_SECRET = "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";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+function getProxyUrl(): string | undefined {
+  return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY;
+}
+
+function makeProxyFetch(): typeof fetch {
+  const proxyUrl = getProxyUrl();
+  if (!proxyUrl) return fetch;
+  const agent = new ProxyAgent(proxyUrl);
+  return (input: RequestInfo | URL, init?: RequestInit) => {
+    const base = init ? { ...init } : {};
+    return fetch(input, { ...base, dispatcher: agent } as RequestInit);
+  };
+}
+
+async function refreshGoogleGeminiCliToken(
+  cred: OAuthCredentials,
+): Promise<{ apiKey: string; newCredentials: OAuthCredentials }> {
+  const proxyFetch = makeProxyFetch();
+  const response = await proxyFetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      refresh_token: cred.refresh,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Google Cloud token refresh failed: ${error}`);
+  }
+
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+  };
+
+  const newCredentials: OAuthCredentials = {
+    ...cred,
+    refresh: data.refresh_token || cred.refresh,
+    access: data.access_token,
+    expires: Date.now() + data.expires_in * 1000 - 5 * 60 * 1000,
+  };
+
+  const apiKey = JSON.stringify({
+    token: newCredentials.access,
+    projectId: newCredentials.projectId,
+  });
+
+  return { apiKey, newCredentials };
+}
 
 function buildOAuthApiKey(provider: string, credentials: OAuthCredentials): string {
   const needsProjectId = provider === "google-gemini-cli" || provider === "google-antigravity";
@@ -62,7 +123,10 @@ async function refreshOAuthTokenWithLock(params: {
               const newCredentials = await refreshQwenPortalCredentials(cred);
               return { apiKey: newCredentials.access, newCredentials };
             })()
-          : await getOAuthApiKey(cred.provider as OAuthProvider, oauthCreds);
+          : String(cred.provider) === "google-gemini-cli" ||
+              String(cred.provider) === "google-antigravity"
+            ? await refreshGoogleGeminiCliToken(cred)
+            : await getOAuthApiKey(cred.provider as OAuthProvider, oauthCreds);
     if (!result) return null;
     store.profiles[params.profileId] = {
       ...cred,

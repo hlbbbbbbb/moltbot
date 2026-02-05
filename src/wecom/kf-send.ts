@@ -43,9 +43,8 @@ export async function sendWeComKfMessage(options: WeComKfSendOptions): Promise<W
     const token = await getWeComAccessToken(credentials);
     const url = `https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg?access_token=${token}`;
 
-    // 分割长消息
-    const maxLength = 2000;
-    const chunks = splitMessage(content, maxLength);
+    // 分割长消息（使用默认的安全上限 1800）
+    const chunks = splitMessage(content);
 
     let lastResult: WeComKfSendResult = { success: false };
 
@@ -102,8 +101,16 @@ export async function sendWeComKfMessage(options: WeComKfSendOptions): Promise<W
 
 /**
  * 分割长消息
+ *
+ * 微信客服消息限制：
+ * - 文本消息最大 2048 字符
+ * - 为安全起见使用 1800 作为上限（留余量给 emoji 等多字节字符）
  */
-function splitMessage(message: string, maxLength: number): string[] {
+function splitMessage(message: string, maxLength: number = 1800): string[] {
+  if (!message || message.length <= maxLength) {
+    return message ? [message] : [];
+  }
+
   const chunks: string[] = [];
   let remaining = message;
 
@@ -113,16 +120,48 @@ function splitMessage(message: string, maxLength: number): string[] {
       break;
     }
 
+    // 优先在换行处分割
     let splitIndex = remaining.lastIndexOf("\n", maxLength);
-    if (splitIndex === -1 || splitIndex < maxLength * 0.5) {
-      splitIndex = remaining.lastIndexOf(" ", maxLength);
-      if (splitIndex === -1 || splitIndex < maxLength * 0.5) {
-        splitIndex = maxLength;
+
+    // 如果找不到合适的换行，尝试在句号、问号、感叹号处分割
+    if (splitIndex === -1 || splitIndex < maxLength * 0.3) {
+      const punctuations = ["。", "！", "？", ".", "!", "?", "；", ";"];
+      for (const p of punctuations) {
+        const idx = remaining.lastIndexOf(p, maxLength);
+        if (idx > splitIndex && idx >= maxLength * 0.3) {
+          splitIndex = idx + 1; // 包含标点
+          break;
+        }
       }
     }
 
-    chunks.push(remaining.substring(0, splitIndex));
+    // 如果还是找不到，尝试在空格处分割
+    if (splitIndex === -1 || splitIndex < maxLength * 0.3) {
+      splitIndex = remaining.lastIndexOf(" ", maxLength);
+    }
+
+    // 最后手段：强制截断
+    if (splitIndex === -1 || splitIndex < maxLength * 0.3) {
+      splitIndex = maxLength;
+    }
+
+    chunks.push(remaining.substring(0, splitIndex).trim());
     remaining = remaining.substring(splitIndex).trim();
+  }
+
+  // 如果分成了多条，添加分页提示（不使用emoji，避免兼容性问题）
+  if (chunks.length > 1) {
+    return chunks.map((chunk, i) => {
+      const pageInfo = `(${i + 1}/${chunks.length})`;
+      // 第一条在末尾加提示，后续条在开头加提示
+      if (i === 0) {
+        return `${chunk}\n\n${pageInfo} ...`;
+      } else if (i === chunks.length - 1) {
+        return `${pageInfo}\n${chunk}`;
+      } else {
+        return `${pageInfo}\n${chunk}\n\n...`;
+      }
+    });
   }
 
   return chunks;
