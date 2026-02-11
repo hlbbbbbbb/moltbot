@@ -355,7 +355,7 @@ export function runMemoryConsolidation(workspaceDir: string): {
         promotedCount++;
       }
     } catch (error) {
-      log.error(`Failed to promote ${candidate.id}: ${error}`);
+      log.error(`Failed to promote ${candidate.id}: ${String(error)}`);
     }
   }
 

@@ -226,6 +226,40 @@ export function validateConfigObjectWithPlugins(raw: unknown):
     }
   }
 
+  // Hook mapping channels: allow any string in zod (plugins add channels dynamically),
+  // but warn when the configured channel doesn't match a known channel id.
+  const hookChannels = new Set<string>(["last"]);
+  for (const id of allowedChannels) {
+    if (id === "defaults") continue;
+    hookChannels.add(id);
+  }
+  const mappings = config.hooks?.mappings;
+  if (Array.isArray(mappings)) {
+    for (const [index, mapping] of mappings.entries()) {
+      if (!mapping || typeof mapping !== "object") continue;
+      const channelRaw = (mapping as Record<string, unknown>).channel;
+      if (channelRaw === undefined) continue;
+      if (typeof channelRaw !== "string") {
+        warnings.push({
+          path: `hooks.mappings.${index}.channel`,
+          message: "channel should be a string (channel id or 'last')",
+        });
+        continue;
+      }
+      const trimmed = channelRaw.trim();
+      if (!trimmed) continue;
+      if (trimmed.toLowerCase() === "last") continue;
+      // We can't validate plugin aliases here (manifest registry only knows channel ids),
+      // so treat unknown ids as warnings rather than hard errors.
+      if (!hookChannels.has(trimmed) && !hookChannels.has(trimmed.toLowerCase())) {
+        warnings.push({
+          path: `hooks.mappings.${index}.channel`,
+          message: `unknown channel id for hook mapping: ${trimmed}`,
+        });
+      }
+    }
+  }
+
   const heartbeatChannelIds = new Set<string>();
   for (const channelId of CHANNEL_IDS) {
     heartbeatChannelIds.add(channelId.toLowerCase());

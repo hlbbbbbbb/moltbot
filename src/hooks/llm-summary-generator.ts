@@ -15,6 +15,7 @@ import {
   resolveAgentWorkspaceDir,
   resolveAgentDir,
 } from "../agents/agent-scope.js";
+import { runHookLlmWithFallback } from "./llm-runner.js";
 
 export type SessionSummary = {
   slug: string; // Short identifier for filename
@@ -76,6 +77,7 @@ export async function generateSummaryViaLLM(params: {
     // Create a temporary session file for this one-off LLM call
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-summary-"));
     tempSessionFile = path.join(tempDir, "session.jsonl");
+    const sessionFile = tempSessionFile;
 
     // Limit input length to avoid exceeding context window
     const maxChars = 20000;
@@ -126,17 +128,29 @@ Notes:
 - Extract facts that would be useful to recall later
 - Write in a way that helps future recall of this day's events`;
 
-    const result = await runEmbeddedPiAgent({
-      sessionId: `summary-generator-${Date.now()}`,
-      sessionKey: "temp:summary-generator",
-      sessionFile: tempSessionFile,
-      workspaceDir,
+    const runStartedAt = Date.now();
+    const sessionId = `summary-generator-${runStartedAt}`;
+    const runId = `summary-gen-${runStartedAt}`;
+    const fallbackResult = await runHookLlmWithFallback({
+      cfg: params.cfg,
+      agentId,
       agentDir,
-      config: params.cfg,
-      prompt,
-      timeoutMs: 60_000, // 60 second timeout (longer than slug generation)
-      runId: `summary-gen-${Date.now()}`,
+      run: (provider, model) =>
+        runEmbeddedPiAgent({
+          sessionId,
+          sessionKey: "temp:summary-generator",
+          sessionFile,
+          workspaceDir,
+          agentDir,
+          config: params.cfg,
+          prompt,
+          provider,
+          model,
+          timeoutMs: 60_000, // 60 second timeout (longer than slug generation)
+          runId,
+        }),
     });
+    const result = fallbackResult.result;
 
     // Extract text from payloads
     if (result.payloads && result.payloads.length > 0) {

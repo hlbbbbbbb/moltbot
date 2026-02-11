@@ -683,7 +683,7 @@ export async function runEmbeddedPiAgent(
               }
             }
           } catch (episodeErr) {
-            log.warn(`Failed to record episode: ${episodeErr}`);
+            log.warn(`Failed to record episode: ${String(episodeErr)}`);
           }
 
           return {

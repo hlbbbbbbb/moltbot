@@ -12,6 +12,7 @@ import {
   resolveAgentWorkspaceDir,
   resolveAgentDir,
 } from "../agents/agent-scope.js";
+import { runHookLlmWithFallback } from "./llm-runner.js";
 
 /**
  * Generate a short 1-2 word filename slug from session content using LLM
@@ -30,6 +31,7 @@ export async function generateSlugViaLLM(params: {
     // Create a temporary session file for this one-off LLM call
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-slug-"));
     tempSessionFile = path.join(tempDir, "session.jsonl");
+    const sessionFile = tempSessionFile;
 
     const prompt = `Based on this conversation, generate a short 1-2 word filename slug (lowercase, hyphen-separated, no file extension).
 
@@ -38,17 +40,29 @@ ${params.sessionContent.slice(0, 2000)}
 
 Reply with ONLY the slug, nothing else. Examples: "vendor-pitch", "api-design", "bug-fix"`;
 
-    const result = await runEmbeddedPiAgent({
-      sessionId: `slug-generator-${Date.now()}`,
-      sessionKey: "temp:slug-generator",
-      sessionFile: tempSessionFile,
-      workspaceDir,
+    const runStartedAt = Date.now();
+    const sessionId = `slug-generator-${runStartedAt}`;
+    const runId = `slug-gen-${runStartedAt}`;
+    const fallbackResult = await runHookLlmWithFallback({
+      cfg: params.cfg,
+      agentId,
       agentDir,
-      config: params.cfg,
-      prompt,
-      timeoutMs: 15_000, // 15 second timeout
-      runId: `slug-gen-${Date.now()}`,
+      run: (provider, model) =>
+        runEmbeddedPiAgent({
+          sessionId,
+          sessionKey: "temp:slug-generator",
+          sessionFile,
+          workspaceDir,
+          agentDir,
+          config: params.cfg,
+          prompt,
+          provider,
+          model,
+          timeoutMs: 15_000, // 15 second timeout
+          runId,
+        }),
     });
+    const result = fallbackResult.result;
 
     // Extract text from payloads
     if (result.payloads && result.payloads.length > 0) {

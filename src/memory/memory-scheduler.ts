@@ -251,7 +251,7 @@ export class MemoryScheduler {
       this.lastStartupRun = Date.now();
       log.info(`Startup tasks for ${this.agentId} completed`);
     } catch (error) {
-      log.error(`Startup tasks for ${this.agentId} failed: ${error}`);
+      log.error(`Startup tasks for ${this.agentId} failed: ${String(error)}`);
       results.push({
         task: "startup",
         success: false,
@@ -330,7 +330,7 @@ export class MemoryScheduler {
       this.lastHourlyRun = Date.now();
       log.info(`Hourly tasks for ${this.agentId} completed`);
     } catch (error) {
-      log.error(`Hourly tasks for ${this.agentId} failed: ${error}`);
+      log.error(`Hourly tasks for ${this.agentId} failed: ${String(error)}`);
       results.push({
         task: "hourly",
         success: false,
@@ -365,7 +365,7 @@ export class MemoryScheduler {
       this.lastDailyRun = Date.now();
       log.info(`Daily tasks for ${this.agentId} completed`);
     } catch (error) {
-      log.error(`Daily tasks for ${this.agentId} failed: ${error}`);
+      log.error(`Daily tasks for ${this.agentId} failed: ${String(error)}`);
       results.push({
         task: "daily",
         success: false,
@@ -393,7 +393,7 @@ export class MemoryScheduler {
         });
       }
     } catch (error) {
-      log.error(`Maintenance check for ${this.agentId} failed: ${error}`);
+      log.error(`Maintenance check for ${this.agentId} failed: ${String(error)}`);
       results.push({
         task: "maintenanceCheck",
         success: false,

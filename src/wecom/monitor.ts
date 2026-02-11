@@ -9,7 +9,7 @@ import type { ClawdbotConfig } from "../config/config.js";
 import { loadConfig } from "../config/config.js";
 import type { MsgContext } from "../auto-reply/templating.js";
 import { getReplyFromConfig } from "../auto-reply/reply/get-reply.js";
-import { resolveWeComAccount, type WeComAccount } from "./accounts.js";
+import { resolveWeComAccount } from "./accounts.js";
 import { WeComCallbackServer, type WeComInboundMessage } from "./callback.js";
 import { sendWeComMessage, sendWeComMedia } from "./send.js";
 import type { ReplyPayload } from "../auto-reply/types.js";

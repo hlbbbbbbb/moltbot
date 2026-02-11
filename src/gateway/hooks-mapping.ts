@@ -79,6 +79,18 @@ const hookPresetMappings: Record<string, HookMappingConfig[]> = {
         "New email from {{messages[0].from}}\nSubject: {{messages[0].subject}}\n{{messages[0].snippet}}\n{{messages[0].body}}",
     },
   ],
+  imap: [
+    {
+      id: "imap",
+      match: { path: "imap" },
+      action: "agent",
+      wakeMode: "now",
+      name: "IMAP",
+      sessionKey: "hook:imap:{{account}}:{{messages[0].key}}",
+      messageTemplate:
+        "New email ({{account}}) from {{messages[0].from}}\nSubject: {{messages[0].subject}}\n{{messages[0].snippet}}\n{{messages[0].body}}",
+    },
+  ],
 };
 
 const transformCache = new Map<string, HookTransformFn>();

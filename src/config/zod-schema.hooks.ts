@@ -17,18 +17,8 @@ export const HookMappingSchema = z
     textTemplate: z.string().optional(),
     deliver: z.boolean().optional(),
     allowUnsafeExternalContent: z.boolean().optional(),
-    channel: z
-      .union([
-        z.literal("last"),
-        z.literal("whatsapp"),
-        z.literal("telegram"),
-        z.literal("discord"),
-        z.literal("slack"),
-        z.literal("signal"),
-        z.literal("imessage"),
-        z.literal("msteams"),
-      ])
-      .optional(),
+    // Channel ids include built-ins plus extension channels; validate at runtime after plugin load.
+    channel: z.string().optional(),
     to: z.string().optional(),
     model: z.string().optional(),
     thinking: z.string().optional(),
@@ -90,6 +80,53 @@ export const InternalHooksSchema = z
 export const HooksGmailSchema = z
   .object({
     account: z.string().optional(),
+    accounts: z
+      .array(
+        z
+          .object({
+            id: z.string().optional(),
+            account: z.string(),
+            label: z.string().optional(),
+            topic: z.string().optional(),
+            subscription: z.string().optional(),
+            pushToken: z.string().optional(),
+            hookUrl: z.string().optional(),
+            includeBody: z.boolean().optional(),
+            maxBytes: z.number().int().positive().optional(),
+            renewEveryMinutes: z.number().int().positive().optional(),
+            allowUnsafeExternalContent: z.boolean().optional(),
+            serve: z
+              .object({
+                bind: z.string().optional(),
+                port: z.number().int().positive().optional(),
+                path: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            tailscale: z
+              .object({
+                mode: z
+                  .union([z.literal("off"), z.literal("serve"), z.literal("funnel")])
+                  .optional(),
+                path: z.string().optional(),
+                target: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+            model: z.string().optional(),
+            thinking: z
+              .union([
+                z.literal("off"),
+                z.literal("minimal"),
+                z.literal("low"),
+                z.literal("medium"),
+                z.literal("high"),
+              ])
+              .optional(),
+          })
+          .strict(),
+      )
+      .optional(),
     label: z.string().optional(),
     topic: z.string().optional(),
     subscription: z.string().optional(),

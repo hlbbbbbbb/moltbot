@@ -1,0 +1,45 @@
+{
+  "user": "一航",
+  "bazi": {
+    "day_master": "丁火",
+    "strength": "身弱",
+    "favorable": ["木（印）", "火（比劫）"],
+    "unfavorable": ["金（财）", "水（官杀）"]
+  },
+  "energy_formula": {
+    "base": 5,
+    "shishen_bonus": {
+      "劫财/比肩": 2.5,
+      "伤官/偏财": [2, 5],
+      "偏财/伤官": 3,
+      "印/伤": 0.5,
+      "枭/劫": 1,
+      "食神（自刑）": -1
+    },
+    "interaction_adjust": {
+      "自刑": -1,
+      "相破": 0.5,
+      "相害": 0.5,
+      "半合": 0,
+      "六合": 0
+    }
+  },
+  "learned_patterns": [
+    {
+      "date": "2026-02-01",
+      "finding": "伤官日虽泄身，但能量可达9-10（情绪化爆发）",
+      "confidence": "high"
+    },
+    {
+      "date": "2026-02-03",
+      "finding": "三酉自刑必崩盘（完美主义焦虑）",
+      "confidence": "high"
+    },
+    {
+      "date": "2026-01-31",
+      "finding": "相破/相害对身弱反而激发（逆向动力）",
+      "confidence": "medium"
+    }
+  ],
+  "last_updated": "2026-02-06T00:30:00+08:00"
+}

@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import {
   type ClawdbotConfig,
   DEFAULT_GATEWAY_PORT,
+  type HooksGmailAccountConfig,
+  type HooksGmailConfig,
   type HooksGmailTailscaleMode,
   resolveGatewayPort,
 } from "../config/config.js";
@@ -98,8 +100,16 @@ export function resolveGmailHookRuntimeConfig(
   cfg: ClawdbotConfig,
   overrides: GmailHookOverrides,
 ): { ok: true; value: GmailHookRuntimeConfig } | { ok: false; error: string } {
+  return resolveGmailHookRuntimeConfigFrom(cfg, cfg.hooks?.gmail, overrides);
+}
+
+export function resolveGmailHookRuntimeConfigFrom(
+  cfg: ClawdbotConfig,
+  gmailConfig: HooksGmailConfig | HooksGmailAccountConfig | undefined,
+  overrides: GmailHookOverrides,
+): { ok: true; value: GmailHookRuntimeConfig } | { ok: false; error: string } {
   const hooks = cfg.hooks;
-  const gmail = hooks?.gmail;
+  const gmail = gmailConfig;
   const hookToken = overrides.hookToken ?? hooks?.token ?? "";
   if (!hookToken) {
     return { ok: false, error: "hooks.token missing (needed for gmail hook)" };

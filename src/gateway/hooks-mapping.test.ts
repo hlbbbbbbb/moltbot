@@ -14,6 +14,12 @@ describe("hooks mapping", () => {
     expect(mappings[0]?.matchPath).toBe("gmail");
   });
 
+  it("resolves imap preset", () => {
+    const mappings = resolveHookMappings({ presets: ["imap"] });
+    expect(mappings.length).toBeGreaterThan(0);
+    expect(mappings[0]?.matchPath).toBe("imap");
+  });
+
   it("renders template from payload", async () => {
     const mappings = resolveHookMappings({
       mappings: [

@@ -64,7 +64,7 @@ export class WeComCrypto {
 
       return msg;
     } catch (error) {
-      throw new Error(`解密失败: ${error}`);
+      throw new Error(`解密失败: ${String(error)}`);
     }
   }
 
@@ -103,7 +103,7 @@ export class WeComCrypto {
 
       return encrypted.toString("base64");
     } catch (error) {
-      throw new Error(`加密失败: ${error}`);
+      throw new Error(`加密失败: ${String(error)}`);
     }
   }
 }

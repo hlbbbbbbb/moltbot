@@ -88,7 +88,7 @@ function loadCursorStore(): Map<string, string> {
       const data = JSON.parse(fs.readFileSync(CURSOR_FILE, "utf-8"));
       return new Map(Object.entries(data));
     }
-  } catch (e) {
+  } catch {
     // 忽略错误，使用空 Map
   }
   return new Map();
@@ -101,7 +101,7 @@ function saveCursorStore(store: Map<string, string>): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(CURSOR_FILE, JSON.stringify(Object.fromEntries(store)), "utf-8");
-  } catch (e) {
+  } catch {
     // 忽略保存错误
   }
 }

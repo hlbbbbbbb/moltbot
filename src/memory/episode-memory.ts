@@ -698,7 +698,7 @@ export function createEpisodeFromRunResult(params: CreateEpisodeFromRunParams): 
       emotionalContext: params.aborted ? "Aborted" : params.timedOut ? "Timed out" : undefined,
     });
   } catch (error) {
-    log.error(`Failed to create episode from run result: ${error}`);
+    log.error(`Failed to create episode from run result: ${String(error)}`);
     return null;
   }
 }

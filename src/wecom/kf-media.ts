@@ -36,7 +36,7 @@ export async function getMediaUrl(
 export async function downloadMedia(
   credentials: WeComCredentials,
   mediaId: string,
-  mediaType: string = "image",
+  _mediaType: string = "image",
 ): Promise<{ path: string; url: string; contentType: string } | null> {
   try {
     const token = await getWeComAccessToken(credentials);

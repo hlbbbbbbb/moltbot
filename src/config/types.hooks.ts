@@ -1,3 +1,5 @@
+import type { ChannelId } from "../channels/plugins/types.js";
+
 export type HookMappingMatch = {
   path?: string;
   source?: string;
@@ -20,16 +22,8 @@ export type HookMappingConfig = {
   deliver?: boolean;
   /** DANGEROUS: Disable external content safety wrapping for this hook. */
   allowUnsafeExternalContent?: boolean;
-  channel?:
-    | "last"
-    | "whatsapp"
-    | "telegram"
-    | "discord"
-    | "googlechat"
-    | "slack"
-    | "signal"
-    | "imessage"
-    | "msteams";
+  /** Messaging channel id (plugin id) or "last". */
+  channel?: "last" | ChannelId;
   to?: string;
   /** Override model for this hook (provider/model or alias). */
   model?: string;
@@ -40,8 +34,7 @@ export type HookMappingConfig = {
 
 export type HooksGmailTailscaleMode = "off" | "serve" | "funnel";
 
-export type HooksGmailConfig = {
-  account?: string;
+type HooksGmailBaseConfig = {
   label?: string;
   topic?: string;
   subscription?: string;
@@ -67,6 +60,19 @@ export type HooksGmailConfig = {
   model?: string;
   /** Optional thinking level override for Gmail hook processing. */
   thinking?: "off" | "minimal" | "low" | "medium" | "high";
+};
+
+export type HooksGmailAccountConfig = HooksGmailBaseConfig & {
+  /** Optional stable id (useful for logs/config diffs). Defaults to account. */
+  id?: string;
+  /** Gmail account email (required for multi-account mode). */
+  account: string;
+};
+
+export type HooksGmailConfig = HooksGmailBaseConfig & {
+  account?: string;
+  /** Optional multi-account configuration. When set, each account spawns its own watcher. */
+  accounts?: HooksGmailAccountConfig[];
 };
 
 export type InternalHookHandlerConfig = {
