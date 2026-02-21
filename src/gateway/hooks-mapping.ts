@@ -25,6 +25,8 @@ export type HookMappingResolved = {
   model?: string;
   thinking?: string;
   timeoutSeconds?: number;
+  eventSource?: string;
+  eventIdTemplate?: string;
   transform?: HookMappingTransformResolved;
 };
 
@@ -45,6 +47,8 @@ export type HookAction =
       kind: "wake";
       text: string;
       mode: "now" | "next-heartbeat";
+      eventSource?: string;
+      eventId?: string;
     }
   | {
       kind: "agent";
@@ -59,6 +63,8 @@ export type HookAction =
       model?: string;
       thinking?: string;
       timeoutSeconds?: number;
+      eventSource?: string;
+      eventId?: string;
     };
 
 export type HookMappingResult =
@@ -74,9 +80,11 @@ const hookPresetMappings: Record<string, HookMappingConfig[]> = {
       action: "agent",
       wakeMode: "now",
       name: "Gmail",
-      sessionKey: "hook:gmail:{{messages[0].id}}",
+      sessionKey: "hook:gmail:{{messages[0].threadId || messages[0].id}}",
       messageTemplate:
         "New email from {{messages[0].from}}\nSubject: {{messages[0].subject}}\n{{messages[0].snippet}}\n{{messages[0].body}}",
+      eventSource: "email:gmail",
+      eventIdTemplate: "{{messages[0].id || messages[0].threadId}}",
     },
   ],
   imap: [
@@ -89,6 +97,9 @@ const hookPresetMappings: Record<string, HookMappingConfig[]> = {
       sessionKey: "hook:imap:{{account}}:{{messages[0].key}}",
       messageTemplate:
         "New email ({{account}}) from {{messages[0].from}}\nSubject: {{messages[0].subject}}\n{{messages[0].snippet}}\n{{messages[0].body}}",
+      eventSource: "email:imap",
+      eventIdTemplate:
+        "{{account}}:{{messages[0].key || messages[0].uid || messages[0].messageId || messages[0].subject}}",
     },
   ],
 };
@@ -110,6 +121,8 @@ type HookTransformResult = Partial<{
   model: string;
   thinking: string;
   timeoutSeconds: number;
+  eventSource: string;
+  eventId: string;
 }> | null;
 
 type HookTransformFn = (
@@ -207,6 +220,8 @@ function normalizeHookMapping(
     model: mapping.model,
     thinking: mapping.thinking,
     timeoutSeconds: mapping.timeoutSeconds,
+    eventSource: mapping.eventSource,
+    eventIdTemplate: mapping.eventIdTemplate,
     transform,
   };
 }
@@ -234,6 +249,8 @@ function buildActionFromMapping(
         kind: "wake",
         text,
         mode: mapping.wakeMode ?? "now",
+        eventSource: renderOptional(mapping.eventSource, ctx),
+        eventId: renderOptional(mapping.eventIdTemplate, ctx),
       },
     };
   }
@@ -253,6 +270,8 @@ function buildActionFromMapping(
       model: renderOptional(mapping.model, ctx),
       thinking: renderOptional(mapping.thinking, ctx),
       timeoutSeconds: mapping.timeoutSeconds,
+      eventSource: renderOptional(mapping.eventSource, ctx),
+      eventId: renderOptional(mapping.eventIdTemplate, ctx),
     },
   };
 }
@@ -270,7 +289,13 @@ function mergeAction(
     const baseWake = base.kind === "wake" ? base : undefined;
     const text = typeof override.text === "string" ? override.text : (baseWake?.text ?? "");
     const mode = override.mode === "next-heartbeat" ? "next-heartbeat" : (baseWake?.mode ?? "now");
-    return validateAction({ kind: "wake", text, mode });
+    return validateAction({
+      kind: "wake",
+      text,
+      mode,
+      eventSource: override.eventSource ?? baseWake?.eventSource,
+      eventId: override.eventId ?? baseWake?.eventId,
+    });
   }
   const baseAgent = base.kind === "agent" ? base : undefined;
   const message =
@@ -293,6 +318,8 @@ function mergeAction(
     model: override.model ?? baseAgent?.model,
     thinking: override.thinking ?? baseAgent?.thinking,
     timeoutSeconds: override.timeoutSeconds ?? baseAgent?.timeoutSeconds,
+    eventSource: override.eventSource ?? baseAgent?.eventSource,
+    eventId: override.eventId ?? baseAgent?.eventId,
   });
 }
 
@@ -358,6 +385,17 @@ function renderTemplate(template: string, ctx: HookMappingContext) {
 }
 
 function resolveTemplateExpr(expr: string, ctx: HookMappingContext) {
+  const fallbackExprs = splitFallbackExpr(expr);
+  for (const candidate of fallbackExprs) {
+    const value = resolveTemplateExprSingle(candidate, ctx);
+    if (!isTemplateFallbackEmpty(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function resolveTemplateExprSingle(expr: string, ctx: HookMappingContext) {
   if (expr === "path") return ctx.path;
   if (expr === "now") return new Date().toISOString();
   if (expr.startsWith("headers.")) {
@@ -373,6 +411,20 @@ function resolveTemplateExpr(expr: string, ctx: HookMappingContext) {
     return getByPath(ctx.payload, expr.slice("payload.".length));
   }
   return getByPath(ctx.payload, expr);
+}
+
+function splitFallbackExpr(expr: string): string[] {
+  if (!expr.includes("||")) return [expr];
+  const candidates = expr
+    .split("||")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return candidates.length > 0 ? candidates : [expr];
+}
+
+function isTemplateFallbackEmpty(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === "string" && value.trim() === "";
 }
 
 function getByPath(input: Record<string, unknown>, pathExpr: string): unknown {

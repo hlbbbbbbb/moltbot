@@ -71,9 +71,14 @@ describe("CronService", () => {
     const jobs = await cron.list({ includeDisabled: true });
     const updated = jobs.find((j) => j.id === job.id);
     expect(updated?.enabled).toBe(false);
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("hello", {
-      agentId: undefined,
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({
+        agentId: undefined,
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
     expect(requestHeartbeatNow).toHaveBeenCalled();
 
     await cron.list({ includeDisabled: true });
@@ -112,9 +117,14 @@ describe("CronService", () => {
 
     const jobs = await cron.list({ includeDisabled: true });
     expect(jobs.find((j) => j.id === job.id)).toBeUndefined();
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("hello", {
-      agentId: undefined,
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({
+        agentId: undefined,
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
     expect(requestHeartbeatNow).toHaveBeenCalled();
 
     cron.stop();
@@ -170,9 +180,14 @@ describe("CronService", () => {
 
     expect(runHeartbeatOnce).toHaveBeenCalledTimes(1);
     expect(requestHeartbeatNow).not.toHaveBeenCalled();
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("hello", {
-      agentId: undefined,
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "hello",
+      expect.objectContaining({
+        agentId: undefined,
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
     expect(job.state.runningAtMs).toBeTypeOf("number");
 
     resolveHeartbeat?.({ status: "ran", durationMs: 123 });
@@ -219,9 +234,14 @@ describe("CronService", () => {
 
     await cron.list({ includeDisabled: true });
     expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("Cron: done", {
-      agentId: undefined,
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "Cron: done",
+      expect.objectContaining({
+        agentId: undefined,
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
     expect(requestHeartbeatNow).toHaveBeenCalled();
     cron.stop();
     await store.cleanup();
@@ -362,10 +382,64 @@ describe("CronService", () => {
     await vi.runOnlyPendingTimersAsync();
     await cron.list({ includeDisabled: true });
 
-    expect(enqueueSystemEvent).toHaveBeenCalledWith("Cron (error): last output", {
-      agentId: undefined,
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "Cron (error): last output",
+      expect.objectContaining({
+        agentId: undefined,
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
     expect(requestHeartbeatNow).toHaveBeenCalled();
+    cron.stop();
+    await store.cleanup();
+  });
+
+  it("disables one-shot isolated jobs after non-retryable delivery errors", async () => {
+    const store = await makeStorePath();
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+    const runIsolatedAgentJob = vi.fn(async () => ({
+      status: "error" as const,
+      summary: "delivery failed",
+      error: "Request failed with status code 400 (invalid receive_id: 230001)",
+      nonRetryable: true,
+    }));
+
+    const cron = new CronService({
+      storePath: store.storePath,
+      cronEnabled: true,
+      log: noopLogger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
+      runIsolatedAgentJob,
+    });
+
+    await cron.start();
+    const atMs = Date.parse("2025-12-13T00:00:01.000Z");
+    await cron.add({
+      name: "terminal delivery error",
+      enabled: true,
+      schedule: { kind: "at", atMs },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "send this", deliver: true, channel: "feishu" },
+    });
+
+    vi.setSystemTime(new Date("2025-12-13T00:00:01.000Z"));
+    await vi.runOnlyPendingTimersAsync();
+
+    const jobs = await cron.list({ includeDisabled: true });
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    expect(jobs[0]?.enabled).toBe(false);
+    expect(jobs[0]?.state.lastStatus).toBe("error");
+    expect(jobs[0]?.state.nextRunAtMs).toBeUndefined();
+    expect(jobs[0]?.state.lastError).toContain("invalid receive_id");
+
+    vi.setSystemTime(new Date("2025-12-13T00:05:00.000Z"));
+    await vi.runOnlyPendingTimersAsync();
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+
     cron.stop();
     await store.cleanup();
   });

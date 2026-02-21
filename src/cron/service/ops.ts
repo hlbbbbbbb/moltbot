@@ -134,7 +134,12 @@ export async function run(state: CronServiceState, id: string, mode?: "due" | "f
 
 export function wakeNow(
   state: CronServiceState,
-  opts: { mode: "now" | "next-heartbeat"; text: string },
+  opts: {
+    mode: "now" | "next-heartbeat";
+    text: string;
+    source?: string;
+    sourceId?: string;
+  },
 ) {
   return wake(state, opts);
 }

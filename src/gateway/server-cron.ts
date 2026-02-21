@@ -46,13 +46,21 @@ export function buildGatewayCronService(params: {
   const cron = new CronService({
     storePath,
     cronEnabled,
+    maxConcurrentRuns: params.cfg.cron?.maxConcurrentRuns,
     enqueueSystemEvent: (text, opts) => {
       const { agentId, cfg: runtimeConfig } = resolveCronAgent(opts?.agentId);
       const sessionKey = resolveAgentMainSessionKey({
         cfg: runtimeConfig,
         agentId,
       });
-      enqueueSystemEvent(text, { sessionKey });
+      enqueueSystemEvent(text, {
+        sessionKey,
+        source: opts?.source,
+        sourceId: opts?.sourceId,
+        hash: opts?.hash,
+        idempotencyKey: opts?.idempotencyKey,
+        metadata: opts?.metadata,
+      });
     },
     requestHeartbeatNow,
     runHeartbeatOnce: async (opts) => {

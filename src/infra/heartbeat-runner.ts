@@ -35,7 +35,7 @@ import {
 } from "../config/sessions.js";
 import type { AgentDefaultsConfig } from "../config/types.agent-defaults.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import { peekSystemEvents } from "../infra/system-events.js";
+import { peekSystemEventEntriesSince } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getQueueSize } from "../process/command-queue.js";
 import { CommandLane } from "../process/lanes.js";
@@ -51,6 +51,10 @@ import {
 } from "./heartbeat-wake.js";
 import type { OutboundSendDeps } from "./outbound/deliver.js";
 import { deliverOutboundPayloads } from "./outbound/deliver.js";
+import {
+  ensureOutboundSessionEntry,
+  resolveOutboundSessionRoute,
+} from "./outbound/outbound-session.js";
 import {
   resolveHeartbeatDeliveryTarget,
   resolveHeartbeatSenderContext,
@@ -96,6 +100,14 @@ const EXEC_EVENT_PROMPT =
   "An async command you ran earlier has completed. The result is shown in the system messages above. " +
   "Please relay the command output to the user in a helpful way. If the command succeeded, share the relevant output. " +
   "If it failed, explain what went wrong.";
+const HOOK_EVENT_PROMPT =
+  "A hook event summary is shown in the system messages above. Relay those hook results to the user clearly and briefly. " +
+  "Do not reply with HEARTBEAT_OK when a hook summary exists.";
+const SYSTEM_EVENT_PROMPT =
+  "System events are shown in the system messages above. Summarize the actionable items clearly and briefly. " +
+  "Do not reply with HEARTBEAT_OK when system events are present.";
+const SYSTEM_EVENT_FALLBACK_MAX_CHARS = 1600;
+const SYSTEM_EVENT_PROMPT_MAX_CHARS = 1800;
 
 function resolveActiveHoursTimezone(cfg: ClawdbotConfig, raw?: string): string {
   const trimmed = raw?.trim();
@@ -406,6 +418,28 @@ async function restoreHeartbeatUpdatedAt(params: {
   });
 }
 
+async function advanceHeartbeatEventCursor(params: {
+  storePath: string;
+  sessionKey: string;
+  cursor?: number;
+}) {
+  const { storePath, sessionKey, cursor } = params;
+  if (typeof cursor !== "number" || !Number.isFinite(cursor) || cursor <= 0) return;
+  await updateSessionStore(storePath, (store) => {
+    const entry = store[sessionKey];
+    if (!entry) return;
+    const previous =
+      typeof entry.heartbeatEventCursor === "number" && Number.isFinite(entry.heartbeatEventCursor)
+        ? Math.floor(entry.heartbeatEventCursor)
+        : 0;
+    if (cursor <= previous) return;
+    store[sessionKey] = {
+      ...entry,
+      heartbeatEventCursor: Math.floor(cursor),
+    };
+  });
+}
+
 function normalizeHeartbeatReply(
   payload: ReplyPayload,
   responsePrefix: string | undefined,
@@ -428,6 +462,65 @@ function normalizeHeartbeatReply(
     finalText = `${responsePrefix} ${finalText}`;
   }
   return { shouldSkip: false, text: finalText, hasMedia };
+}
+
+function collectHookSystemEvents(events: string[]): string[] {
+  return events
+    .map((event) => event.trim())
+    .filter((event) => event.length > 0 && event.toLowerCase().startsWith("hook "));
+}
+
+function compactSystemEventLine(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("reason periodic")) return null;
+  if (lower.startsWith("read heartbeat.md")) return null;
+  if (lower.includes("heartbeat poll") || lower.includes("heartbeat wake")) return null;
+  if (trimmed.startsWith("Node:")) {
+    return trimmed.replace(/ · last input [^·]+/i, "").trim();
+  }
+  return trimmed;
+}
+
+function collectVisibleSystemEvents(events: string[]): string[] {
+  return events
+    .map((event) => compactSystemEventLine(event))
+    .filter((event): event is string => Boolean(event && event.trim()));
+}
+
+function buildSystemEventFallbackText(events: string[]): string | null {
+  if (events.length === 0) return null;
+  const lines: string[] = [];
+  let used = 0;
+  for (const event of events) {
+    const normalized = event.trim();
+    if (!normalized) continue;
+    const line = `- ${normalized}`;
+    const next = used + line.length + (lines.length > 0 ? 1 : 0);
+    if (next > SYSTEM_EVENT_FALLBACK_MAX_CHARS) break;
+    lines.push(line);
+    used = next;
+  }
+  if (lines.length === 0) return null;
+  return lines.join("\n");
+}
+
+function buildSystemEventPromptContext(events: string[]): string | null {
+  if (events.length === 0) return null;
+  const lines: string[] = [];
+  let used = 0;
+  for (const event of events) {
+    const normalized = event.trim();
+    if (!normalized) continue;
+    const line = `- ${normalized}`;
+    const next = used + line.length + (lines.length > 0 ? 1 : 0);
+    if (next > SYSTEM_EVENT_PROMPT_MAX_CHARS) break;
+    lines.push(line);
+    used = next;
+  }
+  if (lines.length === 0) return null;
+  return `Pending events:\n${lines.join("\n")}`;
 }
 
 export async function runHeartbeatOnce(opts: {
@@ -460,15 +553,33 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: "requests-in-flight" };
   }
 
+  const { entry, sessionKey, storePath } = resolveHeartbeatSession(cfg, agentId, heartbeat);
+  const previousUpdatedAt = entry?.updatedAt;
+  const previousEventCursor =
+    typeof entry?.heartbeatEventCursor === "number" && Number.isFinite(entry.heartbeatEventCursor)
+      ? Math.floor(entry.heartbeatEventCursor)
+      : 0;
+  const pendingEventEntries = peekSystemEventEntriesSince(sessionKey, {
+    afterSeq: previousEventCursor,
+    limit: 400,
+  });
+  const pendingEventCursor = pendingEventEntries[pendingEventEntries.length - 1]?.seq;
+  const pendingEvents = collectVisibleSystemEvents(pendingEventEntries.map((event) => event.text));
+  const hasPendingSystemEvents = pendingEvents.length > 0;
+
   // Skip heartbeat if HEARTBEAT.md exists but has no actionable content.
   // This saves API calls/costs when the file is effectively empty (only comments/headers).
-  // EXCEPTION: Don't skip for exec events - they have pending system events to process.
+  // EXCEPTION: Don't skip when there are pending context events to process.
   const isExecEventReason = opts.reason === "exec-event";
   const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
   const heartbeatFilePath = path.join(workspaceDir, DEFAULT_HEARTBEAT_FILENAME);
   try {
     const heartbeatFileContent = await fs.readFile(heartbeatFilePath, "utf-8");
-    if (isHeartbeatContentEffectivelyEmpty(heartbeatFileContent) && !isExecEventReason) {
+    if (
+      isHeartbeatContentEffectivelyEmpty(heartbeatFileContent) &&
+      !isExecEventReason &&
+      !hasPendingSystemEvents
+    ) {
       emitHeartbeatEvent({
         status: "skipped",
         reason: "empty-heartbeat-file",
@@ -481,8 +592,6 @@ export async function runHeartbeatOnce(opts: {
     // The LLM prompt says "if it exists" so this is expected behavior.
   }
 
-  const { entry, sessionKey, storePath } = resolveHeartbeatSession(cfg, agentId, heartbeat);
-  const previousUpdatedAt = entry?.updatedAt;
   const delivery = resolveHeartbeatDeliveryTarget({ cfg, entry, heartbeat });
   const visibility =
     delivery.channel !== "none"
@@ -498,16 +607,30 @@ export async function runHeartbeatOnce(opts: {
   // Check if this is an exec event with pending exec completion system events.
   // If so, use a specialized prompt that instructs the model to relay the result
   // instead of the standard heartbeat prompt with "reply HEARTBEAT_OK".
-  const isExecEvent = opts.reason === "exec-event";
-  const pendingEvents = isExecEvent ? peekSystemEvents(sessionKey) : [];
   const hasExecCompletion = pendingEvents.some((evt) => evt.includes("Exec finished"));
-
-  const prompt = hasExecCompletion ? EXEC_EVENT_PROMPT : resolveHeartbeatPrompt(cfg, heartbeat);
+  const hookEvents = collectHookSystemEvents(pendingEvents);
+  const hasHookCompletion = hookEvents.length > 0;
+  const hasSystemEvents = pendingEvents.length > 0;
+  const promptBase = hasExecCompletion
+    ? EXEC_EVENT_PROMPT
+    : hasHookCompletion
+      ? HOOK_EVENT_PROMPT
+      : hasSystemEvents
+        ? SYSTEM_EVENT_PROMPT
+        : resolveHeartbeatPrompt(cfg, heartbeat);
+  const promptContext = buildSystemEventPromptContext(pendingEvents);
+  const prompt = promptContext ? `${promptBase}\n\n${promptContext}` : promptBase;
   const ctx = {
     Body: prompt,
     From: sender,
     To: sender,
-    Provider: hasExecCompletion ? "exec-event" : "heartbeat",
+    Provider: hasExecCompletion
+      ? "exec-event"
+      : hasHookCompletion
+        ? "hook-event"
+        : hasSystemEvents
+          ? "system-event"
+          : "heartbeat",
     SessionKey: sessionKey,
   };
   if (!visibility.showAlerts && !visibility.showOk && !visibility.useIndicator) {
@@ -521,6 +644,34 @@ export async function runHeartbeatOnce(opts: {
   }
 
   const heartbeatOkText = responsePrefix ? `${responsePrefix} ${HEARTBEAT_TOKEN}` : HEARTBEAT_TOKEN;
+  let deliveryMirrorPromise: Promise<{ sessionKey: string; agentId: string } | undefined> | null =
+    null;
+  const getDeliveryMirror = async () => {
+    if (!deliveryMirrorPromise) {
+      deliveryMirrorPromise = (async () => {
+        if (delivery.channel === "none" || !delivery.to) return undefined;
+        const route = await resolveOutboundSessionRoute({
+          cfg,
+          channel: delivery.channel,
+          agentId,
+          accountId: delivery.accountId,
+          target: delivery.to,
+        });
+        if (route) {
+          await ensureOutboundSessionEntry({
+            cfg,
+            agentId,
+            channel: delivery.channel,
+            accountId: delivery.accountId,
+            route,
+          });
+          return { sessionKey: route.sessionKey, agentId };
+        }
+        return { sessionKey, agentId };
+      })();
+    }
+    return await deliveryMirrorPromise;
+  };
   const canAttemptHeartbeatOk = Boolean(
     visibility.showOk && delivery.channel !== "none" && delivery.to,
   );
@@ -535,6 +686,7 @@ export async function runHeartbeatOnce(opts: {
       });
       if (!readiness.ok) return false;
     }
+    const mirror = await getDeliveryMirror();
     await deliverOutboundPayloads({
       cfg,
       channel: delivery.channel,
@@ -542,6 +694,12 @@ export async function runHeartbeatOnce(opts: {
       accountId: delivery.accountId,
       payloads: [{ text: heartbeatOkText }],
       deps: opts.deps,
+      mirror: mirror
+        ? {
+            ...mirror,
+            text: heartbeatOkText,
+          }
+        : undefined,
     });
     return true;
   };
@@ -562,6 +720,11 @@ export async function runHeartbeatOnce(opts: {
         storePath,
         sessionKey,
         updatedAt: previousUpdatedAt,
+      });
+      await advanceHeartbeatEventCursor({
+        storePath,
+        sessionKey,
+        cursor: pendingEventCursor,
       });
       const okSent = await maybeSendHeartbeatOk();
       emitHeartbeatEvent({
@@ -585,16 +748,33 @@ export async function runHeartbeatOnce(opts: {
       hasExecCompletion && !normalized.text.trim() && replyPayload.text?.trim()
         ? replyPayload.text.trim()
         : null;
-    if (execFallbackText) {
-      normalized.text = execFallbackText;
+    const hookFallbackText =
+      hasHookCompletion && !normalized.text.trim() ? hookEvents.join("\n").trim() : null;
+    const systemEventFallbackText =
+      hasSystemEvents && !normalized.text.trim()
+        ? buildSystemEventFallbackText(pendingEvents)
+        : null;
+    const forcedFallbackText = execFallbackText ?? hookFallbackText ?? systemEventFallbackText;
+    if (forcedFallbackText) {
+      normalized.text = forcedFallbackText;
       normalized.shouldSkip = false;
     }
-    const shouldSkipMain = normalized.shouldSkip && !normalized.hasMedia && !hasExecCompletion;
+    const shouldSkipMain =
+      normalized.shouldSkip &&
+      !normalized.hasMedia &&
+      !hasExecCompletion &&
+      !hasHookCompletion &&
+      !hasSystemEvents;
     if (shouldSkipMain && reasoningPayloads.length === 0) {
       await restoreHeartbeatUpdatedAt({
         storePath,
         sessionKey,
         updatedAt: previousUpdatedAt,
+      });
+      await advanceHeartbeatEventCursor({
+        storePath,
+        sessionKey,
+        cursor: pendingEventCursor,
       });
       const okSent = await maybeSendHeartbeatOk();
       emitHeartbeatEvent({
@@ -631,6 +811,11 @@ export async function runHeartbeatOnce(opts: {
         sessionKey,
         updatedAt: previousUpdatedAt,
       });
+      await advanceHeartbeatEventCursor({
+        storePath,
+        sessionKey,
+        cursor: pendingEventCursor,
+      });
       emitHeartbeatEvent({
         status: "skipped",
         reason: "duplicate",
@@ -651,6 +836,11 @@ export async function runHeartbeatOnce(opts: {
       : normalized.text;
 
     if (delivery.channel === "none" || !delivery.to) {
+      await advanceHeartbeatEventCursor({
+        storePath,
+        sessionKey,
+        cursor: pendingEventCursor,
+      });
       emitHeartbeatEvent({
         status: "skipped",
         reason: delivery.reason ?? "no-target",
@@ -663,6 +853,11 @@ export async function runHeartbeatOnce(opts: {
 
     if (!visibility.showAlerts) {
       await restoreHeartbeatUpdatedAt({ storePath, sessionKey, updatedAt: previousUpdatedAt });
+      await advanceHeartbeatEventCursor({
+        storePath,
+        sessionKey,
+        cursor: pendingEventCursor,
+      });
       emitHeartbeatEvent({
         status: "skipped",
         reason: "alerts-disabled",
@@ -700,23 +895,40 @@ export async function runHeartbeatOnce(opts: {
       }
     }
 
+    const outboundPayloads = [
+      ...reasoningPayloads,
+      ...(shouldSkipMain
+        ? []
+        : [
+            {
+              text: normalized.text,
+              mediaUrls,
+            },
+          ]),
+    ];
+    const mirrorText = outboundPayloads
+      .map((payload) => payload.text?.trim())
+      .filter((text): text is string => Boolean(text))
+      .join("\n");
+    const mirrorMediaUrls = outboundPayloads.flatMap(
+      (payload) => payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []),
+    );
+    const mirror = await getDeliveryMirror();
+
     await deliverOutboundPayloads({
       cfg,
       channel: delivery.channel,
       to: delivery.to,
       accountId: deliveryAccountId,
-      payloads: [
-        ...reasoningPayloads,
-        ...(shouldSkipMain
-          ? []
-          : [
-              {
-                text: normalized.text,
-                mediaUrls,
-              },
-            ]),
-      ],
+      payloads: outboundPayloads,
       deps: opts.deps,
+      mirror: mirror
+        ? {
+            ...mirror,
+            text: mirrorText || undefined,
+            mediaUrls: mirrorMediaUrls.length > 0 ? mirrorMediaUrls : undefined,
+          }
+        : undefined,
     });
 
     // Record last delivered heartbeat payload for dedupe.
@@ -732,6 +944,12 @@ export async function runHeartbeatOnce(opts: {
         await saveSessionStore(storePath, store);
       }
     }
+
+    await advanceHeartbeatEventCursor({
+      storePath,
+      sessionKey,
+      cursor: pendingEventCursor,
+    });
 
     emitHeartbeatEvent({
       status: "sent",

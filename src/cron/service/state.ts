@@ -19,12 +19,22 @@ export type Logger = {
   error: (obj: unknown, msg?: string) => void;
 };
 
+export type CronSystemEventOptions = {
+  agentId?: string;
+  source?: string;
+  sourceId?: string;
+  hash?: string;
+  idempotencyKey?: string;
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
 export type CronServiceDeps = {
   nowMs?: () => number;
   log: Logger;
   storePath: string;
   cronEnabled: boolean;
-  enqueueSystemEvent: (text: string, opts?: { agentId?: string }) => void;
+  maxConcurrentRuns?: number;
+  enqueueSystemEvent: (text: string, opts?: CronSystemEventOptions) => void;
   requestHeartbeatNow: (opts?: { reason?: string }) => void;
   runHeartbeatOnce?: (opts?: { reason?: string }) => Promise<HeartbeatRunResult>;
   runIsolatedAgentJob: (params: { job: CronJob; message: string }) => Promise<{
@@ -33,6 +43,7 @@ export type CronServiceDeps = {
     /** Last non-empty agent text output (not truncated). */
     outputText?: string;
     error?: string;
+    nonRetryable?: boolean;
   }>;
   onEvent?: (evt: CronEvent) => void;
 };

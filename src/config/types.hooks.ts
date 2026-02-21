@@ -29,6 +29,10 @@ export type HookMappingConfig = {
   model?: string;
   thinking?: string;
   timeoutSeconds?: number;
+  /** Event source label for idempotency (e.g. "email:gmail"). */
+  eventSource?: string;
+  /** Template for stable source id (e.g. message id / uid). */
+  eventIdTemplate?: string;
   transform?: HookMappingTransform;
 };
 

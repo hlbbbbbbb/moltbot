@@ -117,11 +117,20 @@ export const systemHandlers: GatewayRequestHandlers = {
           enqueueSystemEvent(deltaText, {
             sessionKey,
             contextKey: presenceUpdate.key,
+            source: "system:presence",
+            sourceId: presenceUpdate.key ?? deviceId ?? instanceId ?? sessionKey,
+            metadata: {
+              reason: reasonValue ?? "event",
+            },
           });
         }
       }
     } else {
-      enqueueSystemEvent(text, { sessionKey });
+      enqueueSystemEvent(text, {
+        sessionKey,
+        source: "system:event",
+        sourceId: instanceId ?? deviceId ?? sessionKey,
+      });
     }
     const nextPresenceVersion = context.incrementPresenceVersion();
     context.broadcast(

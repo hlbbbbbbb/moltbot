@@ -7,6 +7,14 @@ import { ensureLoaded, persist } from "./store.js";
 
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
+function resolveRunConcurrency(state: CronServiceState): number {
+  const raw = state.deps.maxConcurrentRuns;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(raw));
+}
+
 export function armTimer(state: CronServiceState) {
   if (state.timer) clearTimeout(state.timer);
   state.timer = null;
@@ -48,9 +56,25 @@ export async function runDueJobs(state: CronServiceState) {
     const next = j.state.nextRunAtMs;
     return typeof next === "number" && now >= next;
   });
-  for (const job of due) {
-    await executeJob(state, job, now, { forced: false });
+  const concurrency = Math.min(resolveRunConcurrency(state), Math.max(1, due.length));
+  if (concurrency <= 1) {
+    for (const job of due) {
+      await executeJob(state, job, now, { forced: false });
+    }
+    return;
   }
+
+  let cursor = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= due.length) return;
+      const job = due[index];
+      if (!job) return;
+      await executeJob(state, job, now, { forced: false });
+    }
+  });
+  await Promise.all(workers);
 }
 
 export async function executeJob(
@@ -60,6 +84,7 @@ export async function executeJob(
   opts: { forced: boolean },
 ) {
   const startedAt = state.deps.nowMs();
+  const runEventSourceId = `${job.id}:${startedAt}`;
   job.state.runningAtMs = startedAt;
   job.state.lastError = undefined;
   emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
@@ -71,6 +96,7 @@ export async function executeJob(
     err?: string,
     summary?: string,
     outputText?: string,
+    opts?: { finalizeOneShot?: boolean },
   ) => {
     const endedAt = state.deps.nowMs();
     job.state.runningAtMs = undefined;
@@ -81,10 +107,12 @@ export async function executeJob(
 
     const shouldDelete =
       job.schedule.kind === "at" && status === "ok" && job.deleteAfterRun === true;
+    const shouldFinalizeOneShot =
+      job.schedule.kind === "at" && (status === "ok" || opts?.finalizeOneShot === true);
 
     if (!shouldDelete) {
-      if (job.schedule.kind === "at" && status === "ok") {
-        // One-shot job completed successfully; disable it.
+      if (shouldFinalizeOneShot) {
+        // One-shot job completed or hit a non-retryable terminal state; disable it.
         job.enabled = false;
         job.state.nextRunAtMs = undefined;
       } else if (job.enabled) {
@@ -129,6 +157,12 @@ export async function executeJob(
       const statusPrefix = status === "ok" ? prefix : `${prefix} (${status})`;
       state.deps.enqueueSystemEvent(`${statusPrefix}: ${body}`, {
         agentId: job.agentId,
+        source: "cron",
+        sourceId: runEventSourceId,
+        metadata: {
+          jobId: job.id,
+          status,
+        },
       });
       if (job.wakeMode === "now") {
         state.deps.requestHeartbeatNow({ reason: `cron:${job.id}:post` });
@@ -149,7 +183,15 @@ export async function executeJob(
         );
         return;
       }
-      state.deps.enqueueSystemEvent(text, { agentId: job.agentId });
+      state.deps.enqueueSystemEvent(text, {
+        agentId: job.agentId,
+        source: "cron",
+        sourceId: runEventSourceId,
+        metadata: {
+          jobId: job.id,
+          status: "ok",
+        },
+      });
       if (job.wakeMode === "now" && state.deps.runHeartbeatOnce) {
         const reason = `cron:${job.id}`;
         const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -201,8 +243,13 @@ export async function executeJob(
     });
     if (res.status === "ok") await finish("ok", undefined, res.summary, res.outputText);
     else if (res.status === "skipped")
-      await finish("skipped", undefined, res.summary, res.outputText);
-    else await finish("error", res.error ?? "cron job failed", res.summary, res.outputText);
+      await finish("skipped", undefined, res.summary, res.outputText, {
+        finalizeOneShot: res.nonRetryable === true,
+      });
+    else
+      await finish("error", res.error ?? "cron job failed", res.summary, res.outputText, {
+        finalizeOneShot: res.nonRetryable === true,
+      });
   } catch (err) {
     await finish("error", String(err));
   } finally {
@@ -216,11 +263,17 @@ export async function executeJob(
 
 export function wake(
   state: CronServiceState,
-  opts: { mode: "now" | "next-heartbeat"; text: string },
+  opts: { mode: "now" | "next-heartbeat"; text: string; source?: string; sourceId?: string },
 ) {
   const text = opts.text.trim();
   if (!text) return { ok: false } as const;
-  state.deps.enqueueSystemEvent(text);
+  const source =
+    typeof opts.source === "string" && opts.source.trim() ? opts.source.trim() : "cron";
+  const sourceId =
+    typeof opts.sourceId === "string" && opts.sourceId.trim()
+      ? opts.sourceId.trim()
+      : `wake:${Date.now()}`;
+  state.deps.enqueueSystemEvent(text, { source, sourceId });
   if (opts.mode === "now") {
     state.deps.requestHeartbeatNow({ reason: "wake" });
   }

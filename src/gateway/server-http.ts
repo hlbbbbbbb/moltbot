@@ -34,7 +34,12 @@ import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
 type HookDispatchers = {
-  dispatchWakeHook: (value: { text: string; mode: "now" | "next-heartbeat" }) => void;
+  dispatchWakeHook: (value: {
+    text: string;
+    mode: "now" | "next-heartbeat";
+    eventSource?: string;
+    eventId?: string;
+  }) => void;
   dispatchAgentHook: (value: {
     message: string;
     name: string;
@@ -47,6 +52,8 @@ type HookDispatchers = {
     thinking?: string;
     timeoutSeconds?: number;
     allowUnsafeExternalContent?: boolean;
+    eventSource?: string;
+    eventId?: string;
   }) => string;
 };
 
@@ -161,6 +168,8 @@ export function createHooksRequestHandler(
             dispatchWakeHook({
               text: mapped.action.text,
               mode: mapped.action.mode,
+              eventSource: mapped.action.eventSource,
+              eventId: mapped.action.eventId,
             });
             sendJson(res, 200, { ok: true, mode: mapped.action.mode });
             return true;
@@ -182,6 +191,8 @@ export function createHooksRequestHandler(
             thinking: mapped.action.thinking,
             timeoutSeconds: mapped.action.timeoutSeconds,
             allowUnsafeExternalContent: mapped.action.allowUnsafeExternalContent,
+            eventSource: mapped.action.eventSource,
+            eventId: mapped.action.eventId,
           });
           sendJson(res, 202, { ok: true, runId });
           return true;

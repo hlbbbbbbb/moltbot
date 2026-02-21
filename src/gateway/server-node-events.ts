@@ -208,7 +208,18 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
         if (command) text += `: ${command}`;
       }
 
-      enqueueSystemEvent(text, { sessionKey, contextKey: runId ? `exec:${runId}` : "exec" });
+      enqueueSystemEvent(text, {
+        sessionKey,
+        contextKey: runId ? `exec:${runId}` : "exec",
+        source: "exec",
+        sourceId: runId || `${nodeId}:${evt.event}`,
+        metadata: {
+          nodeId,
+          event: evt.event,
+          exitCode: exitCode ?? null,
+          timedOut,
+        },
+      });
       requestHeartbeatNow({ reason: "exec-event" });
       return;
     }

@@ -22,9 +22,21 @@ export function createGatewayHooksRequestHandler(params: {
 }) {
   const { deps, getHooksConfig, bindHost, port, logHooks } = params;
 
-  const dispatchWakeHook = (value: { text: string; mode: "now" | "next-heartbeat" }) => {
+  const dispatchWakeHook = (value: {
+    text: string;
+    mode: "now" | "next-heartbeat";
+    eventSource?: string;
+    eventId?: string;
+  }) => {
     const sessionKey = resolveMainSessionKeyFromConfig();
-    enqueueSystemEvent(value.text, { sessionKey });
+    enqueueSystemEvent(value.text, {
+      sessionKey,
+      source: value.eventSource ?? "hook:wake",
+      sourceId:
+        typeof value.eventId === "string" && value.eventId.trim()
+          ? value.eventId.trim()
+          : `wake:${Date.now()}`,
+    });
     if (value.mode === "now") {
       requestHeartbeatNow({ reason: "hook:wake" });
     }
@@ -42,6 +54,8 @@ export function createGatewayHooksRequestHandler(params: {
     thinking?: string;
     timeoutSeconds?: number;
     allowUnsafeExternalContent?: boolean;
+    eventSource?: string;
+    eventId?: string;
   }) => {
     const sessionKey = value.sessionKey.trim() ? value.sessionKey.trim() : `hook:${randomUUID()}`;
     const mainSessionKey = resolveMainSessionKeyFromConfig();
@@ -87,6 +101,15 @@ export function createGatewayHooksRequestHandler(params: {
           result.status === "ok" ? `Hook ${value.name}` : `Hook ${value.name} (${result.status})`;
         enqueueSystemEvent(`${prefix}: ${summary}`.trim(), {
           sessionKey: mainSessionKey,
+          source: value.eventSource ?? "hook:agent",
+          sourceId:
+            typeof value.eventId === "string" && value.eventId.trim()
+              ? value.eventId.trim()
+              : `${sessionKey}:${jobId}`,
+          metadata: {
+            hookName: value.name,
+            hookStatus: result.status,
+          },
         });
         if (value.wakeMode === "now") {
           requestHeartbeatNow({ reason: `hook:${jobId}` });
@@ -95,6 +118,15 @@ export function createGatewayHooksRequestHandler(params: {
         logHooks.warn(`hook agent failed: ${String(err)}`);
         enqueueSystemEvent(`Hook ${value.name} (error): ${String(err)}`, {
           sessionKey: mainSessionKey,
+          source: value.eventSource ?? "hook:agent",
+          sourceId:
+            typeof value.eventId === "string" && value.eventId.trim()
+              ? value.eventId.trim()
+              : `${sessionKey}:${jobId}`,
+          metadata: {
+            hookName: value.name,
+            hookStatus: "error",
+          },
         });
         if (value.wakeMode === "now") {
           requestHeartbeatNow({ reason: `hook:${jobId}:error` });

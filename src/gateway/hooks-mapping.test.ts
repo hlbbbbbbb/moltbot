@@ -20,6 +20,44 @@ describe("hooks mapping", () => {
     expect(mappings[0]?.matchPath).toBe("imap");
   });
 
+  it("uses gmail thread id for preset session key when available", async () => {
+    const mappings = resolveHookMappings({ presets: ["gmail"] });
+    const result = await applyHookMappings(mappings, {
+      payload: { messages: [{ id: "msg-1", threadId: "thread-7", subject: "Hello" }] },
+      headers: {},
+      url: baseUrl,
+      path: "gmail",
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      expect(result.action.kind).toBe("agent");
+      if (result.action.kind === "agent") {
+        expect(result.action.sessionKey).toBe("hook:gmail:thread-7");
+        expect(result.action.eventSource).toBe("email:gmail");
+        expect(result.action.eventId).toBe("msg-1");
+      }
+    }
+  });
+
+  it("falls back to gmail message id when thread id is missing", async () => {
+    const mappings = resolveHookMappings({ presets: ["gmail"] });
+    const result = await applyHookMappings(mappings, {
+      payload: { messages: [{ id: "msg-1", subject: "Hello" }] },
+      headers: {},
+      url: baseUrl,
+      path: "gmail",
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok) {
+      expect(result.action.kind).toBe("agent");
+      if (result.action.kind === "agent") {
+        expect(result.action.sessionKey).toBe("hook:gmail:msg-1");
+        expect(result.action.eventSource).toBe("email:gmail");
+        expect(result.action.eventId).toBe("msg-1");
+      }
+    }
+  });
+
   it("renders template from payload", async () => {
     const mappings = resolveHookMappings({
       mappings: [

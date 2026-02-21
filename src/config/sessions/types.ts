@@ -31,6 +31,8 @@ export type SessionEntry = {
   lastHeartbeatText?: string;
   /** Timestamp (ms) when lastHeartbeatText was delivered. */
   lastHeartbeatSentAt?: number;
+  /** Highest context-event seq processed by heartbeat for this session. */
+  heartbeatEventCursor?: number;
   sessionId: string;
   updatedAt: number;
   sessionFile?: string;

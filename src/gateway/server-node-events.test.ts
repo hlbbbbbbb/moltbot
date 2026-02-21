@@ -59,7 +59,12 @@ describe("node exec events", () => {
 
     expect(enqueueSystemEventMock).toHaveBeenCalledWith(
       "Exec started (node=node-1 id=run-1): ls -la",
-      { sessionKey: "agent:main:main", contextKey: "exec:run-1" },
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        contextKey: "exec:run-1",
+        source: "exec",
+        sourceId: "run-1",
+      }),
     );
     expect(requestHeartbeatNowMock).toHaveBeenCalledWith({ reason: "exec-event" });
   });
@@ -78,7 +83,12 @@ describe("node exec events", () => {
 
     expect(enqueueSystemEventMock).toHaveBeenCalledWith(
       "Exec finished (node=node-2 id=run-2, code 0)\ndone",
-      { sessionKey: "node-node-2", contextKey: "exec:run-2" },
+      expect.objectContaining({
+        sessionKey: "node-node-2",
+        contextKey: "exec:run-2",
+        source: "exec",
+        sourceId: "run-2",
+      }),
     );
     expect(requestHeartbeatNowMock).toHaveBeenCalledWith({ reason: "exec-event" });
   });
@@ -97,7 +107,12 @@ describe("node exec events", () => {
 
     expect(enqueueSystemEventMock).toHaveBeenCalledWith(
       "Exec denied (node=node-3 id=run-3, allowlist-miss): rm -rf /",
-      { sessionKey: "agent:demo:main", contextKey: "exec:run-3" },
+      expect.objectContaining({
+        sessionKey: "agent:demo:main",
+        contextKey: "exec:run-3",
+        source: "exec",
+        sourceId: "run-3",
+      }),
     );
     expect(requestHeartbeatNowMock).toHaveBeenCalledWith({ reason: "exec-event" });
   });
