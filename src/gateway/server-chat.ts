@@ -1,3 +1,4 @@
+import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../auto-reply/heartbeat.js";
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { loadConfig } from "../config/config.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
@@ -5,13 +6,40 @@ import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
 import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
+function resolveHeartbeatAckMaxChars(): number {
+  try {
+    const cfg = loadConfig();
+    return Math.max(
+      0,
+      cfg.agents?.defaults?.heartbeat?.ackMaxChars ?? DEFAULT_HEARTBEAT_ACK_MAX_CHARS,
+    );
+  } catch {
+    return DEFAULT_HEARTBEAT_ACK_MAX_CHARS;
+  }
+}
+
+function resolveHeartbeatContext(runId: string, sourceRunId?: string) {
+  const primary = getAgentRunContext(runId);
+  if (primary?.isHeartbeat) {
+    return primary;
+  }
+  if (sourceRunId && sourceRunId !== runId) {
+    const source = getAgentRunContext(sourceRunId);
+    if (source?.isHeartbeat) {
+      return source;
+    }
+  }
+  return primary;
+}
+
 /**
- * Check if webchat broadcasts should be suppressed for heartbeat runs.
- * Returns true if the run is a heartbeat and showOk is false.
+ * Check if heartbeat ACK/noise should be hidden from interactive chat surfaces.
  */
-function shouldSuppressHeartbeatBroadcast(runId: string): boolean {
-  const runContext = getAgentRunContext(runId);
-  if (!runContext?.isHeartbeat) return false;
+function shouldHideHeartbeatChatOutput(runId: string, sourceRunId?: string): boolean {
+  const runContext = resolveHeartbeatContext(runId, sourceRunId);
+  if (!runContext?.isHeartbeat) {
+    return false;
+  }
 
   try {
     const cfg = loadConfig();
@@ -21,6 +49,28 @@ function shouldSuppressHeartbeatBroadcast(runId: string): boolean {
     // Default to suppressing if we can't load config
     return true;
   }
+}
+
+function normalizeHeartbeatChatFinalText(params: {
+  runId: string;
+  sourceRunId?: string;
+  text: string;
+}): { suppress: boolean; text: string } {
+  if (!shouldHideHeartbeatChatOutput(params.runId, params.sourceRunId)) {
+    return { suppress: false, text: params.text };
+  }
+
+  const stripped = stripHeartbeatToken(params.text, {
+    mode: "heartbeat",
+    maxAckChars: resolveHeartbeatAckMaxChars(),
+  });
+  if (!stripped.didStrip) {
+    return { suppress: false, text: params.text };
+  }
+  if (stripped.shouldSkip) {
+    return { suppress: true, text: "" };
+  }
+  return { suppress: false, text: stripped.text };
 }
 
 export type ChatRunEntry = {
@@ -133,8 +183,17 @@ export function createAgentEventHandler({
   resolveSessionKeyForRun,
   clearAgentRunContext,
 }: AgentEventHandlerOptions) {
-  const emitChatDelta = (sessionKey: string, clientRunId: string, seq: number, text: string) => {
+  const emitChatDelta = (
+    sessionKey: string,
+    clientRunId: string,
+    sourceRunId: string,
+    seq: number,
+    text: string,
+  ) => {
     chatRunState.buffers.set(clientRunId, text);
+    if (shouldHideHeartbeatChatOutput(clientRunId, sourceRunId)) {
+      return;
+    }
     const now = Date.now();
     const last = chatRunState.deltaSentAt.get(clientRunId) ?? 0;
     if (now - last < 150) return;
@@ -150,21 +209,26 @@ export function createAgentEventHandler({
         timestamp: now,
       },
     };
-    // Suppress webchat broadcast for heartbeat runs when showOk is false
-    if (!shouldSuppressHeartbeatBroadcast(clientRunId)) {
-      broadcast("chat", payload, { dropIfSlow: true });
-    }
+    broadcast("chat", payload, { dropIfSlow: true });
     nodeSendToSession(sessionKey, "chat", payload);
   };
 
   const emitChatFinal = (
     sessionKey: string,
     clientRunId: string,
+    sourceRunId: string,
     seq: number,
     jobState: "done" | "error",
     error?: unknown,
   ) => {
-    const text = chatRunState.buffers.get(clientRunId)?.trim() ?? "";
+    const bufferedText = chatRunState.buffers.get(clientRunId)?.trim() ?? "";
+    const normalizedHeartbeatText = normalizeHeartbeatChatFinalText({
+      runId: clientRunId,
+      sourceRunId,
+      text: bufferedText,
+    });
+    const text = normalizedHeartbeatText.text.trim();
+    const shouldSuppress = normalizedHeartbeatText.suppress;
     chatRunState.buffers.delete(clientRunId);
     chatRunState.deltaSentAt.delete(clientRunId);
     if (jobState === "done") {
@@ -173,18 +237,16 @@ export function createAgentEventHandler({
         sessionKey,
         seq,
         state: "final" as const,
-        message: text
-          ? {
-              role: "assistant",
-              content: [{ type: "text", text }],
-              timestamp: Date.now(),
-            }
-          : undefined,
+        message:
+          !shouldSuppress && text
+            ? {
+                role: "assistant",
+                content: [{ type: "text", text }],
+                timestamp: Date.now(),
+              }
+            : undefined,
       };
-      // Suppress webchat broadcast for heartbeat runs when showOk is false
-      if (!shouldSuppressHeartbeatBroadcast(clientRunId)) {
-        broadcast("chat", payload);
-      }
+      broadcast("chat", payload);
       nodeSendToSession(sessionKey, "chat", payload);
       return;
     }
@@ -250,7 +312,7 @@ export function createAgentEventHandler({
     if (sessionKey) {
       nodeSendToSession(sessionKey, "agent", agentPayload);
       if (!isAborted && evt.stream === "assistant" && typeof evt.data?.text === "string") {
-        emitChatDelta(sessionKey, clientRunId, evt.seq, evt.data.text);
+        emitChatDelta(sessionKey, clientRunId, evt.runId, evt.seq, evt.data.text);
       } else if (!isAborted && (lifecyclePhase === "end" || lifecyclePhase === "error")) {
         if (chatLink) {
           const finished = chatRunState.registry.shift(evt.runId);
@@ -261,6 +323,7 @@ export function createAgentEventHandler({
           emitChatFinal(
             finished.sessionKey,
             finished.clientRunId,
+            evt.runId,
             evt.seq,
             lifecyclePhase === "error" ? "error" : "done",
             evt.data?.error,
@@ -268,6 +331,7 @@ export function createAgentEventHandler({
         } else {
           emitChatFinal(
             sessionKey,
+            evt.runId,
             evt.runId,
             evt.seq,
             lifecyclePhase === "error" ? "error" : "done",

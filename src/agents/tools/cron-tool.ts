@@ -1,6 +1,8 @@
 import { Type } from "@sinclair/typebox";
 import { normalizeCronJobCreate, normalizeCronJobPatch } from "../../cron/normalize.js";
 import { loadConfig } from "../../config/config.js";
+import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
+import { resolveSessionDeliveryTarget } from "../../infra/outbound/targets.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
@@ -129,6 +131,55 @@ async function buildReminderContextLines(params: {
   }
 }
 
+function normalizeMaybeText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function resolvePinnedDeliveryTarget(params: { agentSessionKey?: string }): {
+  channel?: string;
+  to?: string;
+} {
+  const sessionKey = params.agentSessionKey?.trim();
+  if (!sessionKey) return {};
+
+  try {
+    const cfg = loadConfig();
+    const { mainKey, alias } = resolveMainSessionAlias(cfg);
+    const resolvedKey = resolveInternalSessionKey({
+      key: sessionKey,
+      alias,
+      mainKey,
+    });
+    const agentId = resolveSessionAgentId({ sessionKey: resolvedKey, config: cfg });
+    const storePath = resolveStorePath(cfg.session?.store, { agentId });
+    const store = loadSessionStore(storePath);
+
+    const candidates = [resolvedKey, alias, mainKey];
+    const visited = new Set<string>();
+    for (const key of candidates) {
+      if (!key || visited.has(key)) continue;
+      visited.add(key);
+      const entry = store[key];
+      if (!entry) continue;
+      const resolved = resolveSessionDeliveryTarget({
+        entry,
+        requestedChannel: "last",
+      });
+      const channel = normalizeMaybeText(resolved.channel);
+      const to = normalizeMaybeText(resolved.to);
+      if (channel && to) {
+        return { channel, to };
+      }
+    }
+  } catch {
+    // Best effort only: if route pinning fails, keep the original payload.
+  }
+
+  return {};
+}
+
 export function createCronTool(opts?: CronToolOptions): AnyAgentTool {
   return {
     label: "Cron",
@@ -230,6 +281,33 @@ Use jobId as the canonical identifier; id is accepted for compatibility. Use con
               if (contextLines.length > 0) {
                 const baseText = stripExistingContext(payload.text);
                 payload.text = `${baseText}${REMINDER_CONTEXT_MARKER}${contextLines.join("\n")}`;
+              }
+            }
+          }
+          if (
+            job &&
+            typeof job === "object" &&
+            "payload" in job &&
+            (job as { payload?: { kind?: string; channel?: unknown; to?: unknown } }).payload
+              ?.kind === "agentTurn"
+          ) {
+            const payload = (
+              job as {
+                payload: { kind: "agentTurn"; channel?: unknown; to?: unknown };
+              }
+            ).payload;
+            const explicitTo = normalizeMaybeText(payload.to);
+            const explicitChannel = normalizeMaybeText(payload.channel);
+
+            if (!explicitTo) {
+              const pinned = resolvePinnedDeliveryTarget({
+                agentSessionKey: opts?.agentSessionKey,
+              });
+              const pinnedTo = normalizeMaybeText(pinned.to);
+              const pinnedChannel = normalizeMaybeText(pinned.channel);
+              if (pinnedTo) payload.to = pinnedTo;
+              if (pinnedChannel && (!explicitChannel || explicitChannel.toLowerCase() === "last")) {
+                payload.channel = pinnedChannel;
               }
             }
           }

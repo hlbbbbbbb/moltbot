@@ -35,6 +35,20 @@ describe("model-selection", () => {
       });
     });
 
+    it("normalizes anthropic sonnet 4.6 shorthand", () => {
+      expect(parseModelRef("sonnet-4.6", "anthropic")).toEqual({
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      });
+    });
+
+    it("normalizes anthropic sonnet 4.6 dotted ids", () => {
+      expect(parseModelRef("anthropic/claude-sonnet-4.6-20260215", "openai")).toEqual({
+        provider: "anthropic",
+        model: "claude-sonnet-4-6-20260215",
+      });
+    });
+
     it("should return null for empty strings", () => {
       expect(parseModelRef("", "anthropic")).toBeNull();
       expect(parseModelRef("  ", "anthropic")).toBeNull();

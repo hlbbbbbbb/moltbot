@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 import {
   resolveAgentConfig,
   resolveAgentDir,
@@ -39,10 +41,20 @@ import {
 } from "../../auto-reply/thinking.js";
 import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
 import type { ClawdbotConfig } from "../../config/config.js";
-import { resolveSessionTranscriptPath, updateSessionStore } from "../../config/sessions.js";
+import {
+  loadSessionStore,
+  resolveAgentMainSessionKey,
+  resolveSessionTranscriptPath,
+  resolveStorePath,
+  updateSessionStore,
+} from "../../config/sessions.js";
 import type { AgentDefaultsConfig } from "../../config/types.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
+import {
+  ensureOutboundSessionEntry,
+  resolveOutboundSessionRoute,
+} from "../../infra/outbound/outbound-session.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
 import { buildAgentMainSessionKey, normalizeAgentId } from "../../routing/session-key.js";
 import {
@@ -63,6 +75,124 @@ import {
 } from "./helpers.js";
 import { resolveCronSession } from "./session.js";
 
+const MAIN_CONTEXT_HEADER = "[Main session recent context]";
+const MAIN_CONTEXT_MAX_MESSAGES = 8;
+const MAIN_CONTEXT_MAX_CHARS_PER_LINE = 220;
+const MAIN_CONTEXT_MAX_CHARS_TOTAL = 1200;
+const MAIN_CONTEXT_READ_BYTES = 256 * 1024;
+
+type TranscriptRole = "user" | "assistant";
+
+function normalizeContextText(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+function truncateContextText(raw: string, maxChars: number): string {
+  if (raw.length <= maxChars) return raw;
+  if (maxChars <= 3) return raw.slice(0, maxChars);
+  return `${raw.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function extractTranscriptText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const pieces: string[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== "object") continue;
+    const type = (item as { type?: unknown }).type;
+    if (typeof type === "string") {
+      const normalizedType = type.trim().toLowerCase();
+      if (
+        normalizedType !== "text" &&
+        normalizedType !== "input_text" &&
+        normalizedType !== "output_text"
+      ) {
+        continue;
+      }
+    }
+    const text = (item as { text?: unknown }).text;
+    if (typeof text === "string" && text.trim()) {
+      pieces.push(text);
+    }
+  }
+  return pieces.join(" ");
+}
+
+function parseTranscriptMessage(
+  rawMessage: unknown,
+): { role: TranscriptRole; text: string } | null {
+  if (!rawMessage || typeof rawMessage !== "object") return null;
+  const role = (rawMessage as { role?: unknown }).role;
+  if (role !== "user" && role !== "assistant") return null;
+  const content = (rawMessage as { content?: unknown }).content;
+  const text = normalizeContextText(extractTranscriptText(content));
+  if (!text) return null;
+  return { role, text };
+}
+
+function readRecentMainSessionContext(params: { cfg: ClawdbotConfig; agentId: string }): string[] {
+  try {
+    const mainSessionKey = resolveAgentMainSessionKey({
+      cfg: params.cfg,
+      agentId: params.agentId,
+    });
+    const storePath = resolveStorePath(params.cfg.session?.store, {
+      agentId: params.agentId,
+    });
+    const store = loadSessionStore(storePath);
+    const mainEntry = store[mainSessionKey];
+    if (!mainEntry?.sessionId) return [];
+
+    const transcriptPath =
+      mainEntry.sessionFile?.trim() ||
+      resolveSessionTranscriptPath(mainEntry.sessionId, params.agentId);
+    if (!transcriptPath || !fs.existsSync(transcriptPath)) return [];
+
+    const stat = fs.statSync(transcriptPath);
+    if (!stat.isFile() || stat.size <= 0) return [];
+
+    const readBytes = Math.min(stat.size, MAIN_CONTEXT_READ_BYTES);
+    const start = Math.max(0, stat.size - readBytes);
+    const buffer = Buffer.alloc(readBytes);
+    const fd = fs.openSync(transcriptPath, "r");
+    try {
+      fs.readSync(fd, buffer, 0, readBytes, start);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    const lines = buffer
+      .toString("utf-8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+
+    const contextLines: string[] = [];
+    let totalChars = 0;
+    for (let idx = lines.length - 1; idx >= 0; idx -= 1) {
+      if (contextLines.length >= MAIN_CONTEXT_MAX_MESSAGES) break;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(lines[idx]);
+      } catch {
+        continue;
+      }
+      const message = (parsed as { message?: unknown } | null)?.message;
+      const entry = parseTranscriptMessage(message);
+      if (!entry) continue;
+      const label = entry.role === "user" ? "User" : "Assistant";
+      const text = truncateContextText(entry.text, MAIN_CONTEXT_MAX_CHARS_PER_LINE);
+      const line = `- ${label}: ${text}`;
+      totalChars += line.length;
+      if (totalChars > MAIN_CONTEXT_MAX_CHARS_TOTAL) break;
+      contextLines.push(line);
+    }
+
+    return contextLines.reverse();
+  } catch {
+    return [];
+  }
+}
+
 function matchesMessagingToolDeliveryTarget(
   target: MessagingToolSend,
   delivery: { channel: string; to?: string; accountId?: string },
@@ -77,12 +207,48 @@ function matchesMessagingToolDeliveryTarget(
   return target.to === delivery.to;
 }
 
+function normalizeErrorText(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message;
+  }
+  return String(err);
+}
+
+function extractHttpStatus(err: unknown): number | undefined {
+  const maybeStatus = (err as { response?: { status?: unknown } } | null)?.response?.status;
+  if (typeof maybeStatus === "number" && Number.isFinite(maybeStatus)) {
+    return maybeStatus;
+  }
+  return undefined;
+}
+
+function isNonRetryableDeliveryError(err: unknown, errorText?: string): boolean {
+  const status = extractHttpStatus(err);
+  if (status === 400 || status === 404) {
+    return true;
+  }
+
+  const text = (errorText ?? normalizeErrorText(err)).toLowerCase();
+  if (!text) return false;
+
+  return (
+    text.includes("requires a recipient") ||
+    text.includes("invalid receive_id") ||
+    text.includes("receive_id") ||
+    text.includes("invalid target") ||
+    text.includes("unsupported channel") ||
+    text.includes("status code 400") ||
+    text.includes("230001")
+  );
+}
+
 export type RunCronAgentTurnResult = {
   status: "ok" | "error" | "skipped";
   summary?: string;
   /** Last non-empty agent text output (not truncated). */
   outputText?: string;
   error?: string;
+  nonRetryable?: boolean;
 };
 
 export async function runCronIsolatedAgentTurn(params: {
@@ -284,6 +450,16 @@ export async function runCronIsolatedAgentTurn(params: {
     commandBody = `${base}\n${timeLine}`.trim();
   }
 
+  if (baseSessionKey.startsWith("cron:")) {
+    const contextLines = readRecentMainSessionContext({
+      cfg: params.cfg,
+      agentId,
+    });
+    if (contextLines.length > 0) {
+      commandBody = `${commandBody}\n\n${MAIN_CONTEXT_HEADER}\n${contextLines.join("\n")}`;
+    }
+  }
+
   const existingSnapshot = cronSession.sessionEntry.skillsSnapshot;
   const skillsSnapshotVersion = getSkillsSnapshotVersion(workspaceDir);
   const needsSkillsSnapshot =
@@ -318,7 +494,13 @@ export async function runCronIsolatedAgentTurn(params: {
   let fallbackProvider = provider;
   let fallbackModel = model;
   try {
-    const sessionFile = resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
+    const persistedSessionFile = cronSession.sessionEntry.sessionFile?.trim();
+    const sessionFile =
+      persistedSessionFile ||
+      resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
+    if (!persistedSessionFile) {
+      cronSession.sessionEntry.sessionFile = sessionFile;
+    }
     const resolvedVerboseLevel =
       normalizeVerboseLevel(cronSession.sessionEntry.verboseLevel) ??
       normalizeVerboseLevel(agentCfg?.verboseDefault) ??
@@ -441,15 +623,40 @@ export async function runCronIsolatedAgentTurn(params: {
           summary,
           outputText,
           error: reason,
+          nonRetryable: true,
         };
       }
       return {
         status: "skipped",
         summary: `Delivery skipped (${reason}).`,
         outputText,
+        nonRetryable: true,
       };
     }
     try {
+      const outboundRoute = await resolveOutboundSessionRoute({
+        cfg: cfgWithAgentDefaults,
+        channel: resolvedDelivery.channel,
+        agentId,
+        accountId: resolvedDelivery.accountId,
+        target: resolvedDelivery.to,
+      });
+      if (outboundRoute) {
+        await ensureOutboundSessionEntry({
+          cfg: cfgWithAgentDefaults,
+          agentId,
+          channel: resolvedDelivery.channel,
+          accountId: resolvedDelivery.accountId,
+          route: outboundRoute,
+        });
+      }
+      const mirrorText = payloads
+        .map((payload) => payload.text?.trim())
+        .filter((text): text is string => Boolean(text))
+        .join("\n");
+      const mirrorMediaUrls = payloads.flatMap(
+        (payload) => payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []),
+      );
       await deliverOutboundPayloads({
         cfg: cfgWithAgentDefaults,
         channel: resolvedDelivery.channel,
@@ -458,10 +665,26 @@ export async function runCronIsolatedAgentTurn(params: {
         payloads,
         bestEffort: bestEffortDeliver,
         deps: createOutboundSendDeps(params.deps),
+        mirror: outboundRoute
+          ? {
+              sessionKey: outboundRoute.sessionKey,
+              agentId,
+              text: mirrorText || undefined,
+              mediaUrls: mirrorMediaUrls.length > 0 ? mirrorMediaUrls : undefined,
+            }
+          : undefined,
       });
     } catch (err) {
+      const errorText = normalizeErrorText(err);
+      const nonRetryable = isNonRetryableDeliveryError(err, errorText);
       if (!bestEffortDeliver) {
-        return { status: "error", summary, outputText, error: String(err) };
+        return {
+          status: "error",
+          summary,
+          outputText,
+          error: errorText,
+          nonRetryable,
+        };
       }
       return { status: "ok", summary, outputText };
     }

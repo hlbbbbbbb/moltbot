@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 
+import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import type { CliDeps } from "../../cli/deps.js";
 import { loadConfig } from "../../config/config.js";
 import { resolveMainSessionKeyFromConfig } from "../../config/sessions.js";
 import { runCronIsolatedAgentTurn } from "../../cron/isolated-agent.js";
 import type { CronJob } from "../../cron/types.js";
 import { requestHeartbeatNow } from "../../infra/heartbeat-wake.js";
+import {
+  ensureOutboundSessionEntry,
+  resolveOutboundSessionRoute,
+} from "../../infra/outbound/outbound-session.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import type { HookMessageChannel, HooksConfigResolved } from "../hooks.js";
@@ -21,6 +26,32 @@ export function createGatewayHooksRequestHandler(params: {
   logHooks: SubsystemLogger;
 }) {
   const { deps, getHooksConfig, bindHost, port, logHooks } = params;
+
+  const resolveHookEventSessionKey = async (params: {
+    cfg: ReturnType<typeof loadConfig>;
+    channel: HookMessageChannel;
+    to?: string;
+    deliver: boolean;
+    mainSessionKey: string;
+  }): Promise<string> => {
+    const to = typeof params.to === "string" ? params.to.trim() : "";
+    if (!params.deliver || params.channel === "last" || !to) return params.mainSessionKey;
+    const agentId = resolveDefaultAgentId(params.cfg);
+    const route = await resolveOutboundSessionRoute({
+      cfg: params.cfg,
+      channel: params.channel,
+      agentId,
+      target: to,
+    });
+    if (!route) return params.mainSessionKey;
+    await ensureOutboundSessionEntry({
+      cfg: params.cfg,
+      agentId,
+      channel: params.channel,
+      route,
+    });
+    return route.sessionKey;
+  };
 
   const dispatchWakeHook = (value: {
     text: string;
@@ -86,8 +117,21 @@ export function createGatewayHooksRequestHandler(params: {
 
     const runId = randomUUID();
     void (async () => {
+      let eventSessionKey = mainSessionKey;
       try {
         const cfg = loadConfig();
+        try {
+          eventSessionKey = await resolveHookEventSessionKey({
+            cfg,
+            channel: value.channel,
+            to: value.to,
+            deliver: value.deliver,
+            mainSessionKey,
+          });
+        } catch (err) {
+          logHooks.warn(`hook event session routing failed: ${String(err)}`);
+          eventSessionKey = mainSessionKey;
+        }
         const result = await runCronIsolatedAgentTurn({
           cfg,
           deps,
@@ -100,7 +144,7 @@ export function createGatewayHooksRequestHandler(params: {
         const prefix =
           result.status === "ok" ? `Hook ${value.name}` : `Hook ${value.name} (${result.status})`;
         enqueueSystemEvent(`${prefix}: ${summary}`.trim(), {
-          sessionKey: mainSessionKey,
+          sessionKey: eventSessionKey,
           source: value.eventSource ?? "hook:agent",
           sourceId:
             typeof value.eventId === "string" && value.eventId.trim()
@@ -111,13 +155,13 @@ export function createGatewayHooksRequestHandler(params: {
             hookStatus: result.status,
           },
         });
-        if (value.wakeMode === "now") {
+        if (value.wakeMode === "now" && eventSessionKey === mainSessionKey) {
           requestHeartbeatNow({ reason: `hook:${jobId}` });
         }
       } catch (err) {
         logHooks.warn(`hook agent failed: ${String(err)}`);
         enqueueSystemEvent(`Hook ${value.name} (error): ${String(err)}`, {
-          sessionKey: mainSessionKey,
+          sessionKey: eventSessionKey,
           source: value.eventSource ?? "hook:agent",
           sourceId:
             typeof value.eventId === "string" && value.eventId.trim()
@@ -128,7 +172,7 @@ export function createGatewayHooksRequestHandler(params: {
             hookStatus: "error",
           },
         });
-        if (value.wakeMode === "now") {
+        if (value.wakeMode === "now" && eventSessionKey === mainSessionKey) {
           requestHeartbeatNow({ reason: `hook:${jobId}:error` });
         }
       }

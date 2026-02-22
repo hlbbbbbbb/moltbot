@@ -232,14 +232,14 @@ describe("resolveClawdbotMetadata", () => {
     // This is the actual format used in the bundled hooks
     const content = `---
 name: session-memory
-description: "Save session context to memory when /new command is issued"
+description: "Save session context to memory when /new or /reset command is issued"
 homepage: https://docs.clawd.bot/hooks#session-memory
 metadata:
   {
     "clawdbot":
       {
         "emoji": "💾",
-        "events": ["command:new"],
+        "events": ["command:new", "command:reset"],
         "requires": { "config": ["workspace.dir"] },
         "install": [{ "id": "bundled", "kind": "bundled", "label": "Bundled with Clawdbot" }],
       },
@@ -256,7 +256,7 @@ metadata:
     const clawdbot = resolveClawdbotMetadata(frontmatter);
     expect(clawdbot).toBeDefined();
     expect(clawdbot?.emoji).toBe("💾");
-    expect(clawdbot?.events).toEqual(["command:new"]);
+    expect(clawdbot?.events).toEqual(["command:new", "command:reset"]);
     expect(clawdbot?.requires?.config).toEqual(["workspace.dir"]);
     expect(clawdbot?.install?.[0].kind).toBe("bundled");
   });

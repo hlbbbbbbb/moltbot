@@ -384,6 +384,9 @@ export class MemoryIndexManager {
     force?: boolean;
     progress?: (update: MemorySyncProgressUpdate) => void;
   }): Promise<void> {
+    if (this.closed) {
+      return;
+    }
     if (this.syncing) return this.syncing;
     this.syncing = this.runSync(params).finally(() => {
       this.syncing = null;
@@ -558,6 +561,7 @@ export class MemoryIndexManager {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const pendingSync = this.syncing;
     if (this.watchTimer) {
       clearTimeout(this.watchTimer);
       this.watchTimer = null;
@@ -577,6 +581,13 @@ export class MemoryIndexManager {
     if (this.sessionUnsubscribe) {
       this.sessionUnsubscribe();
       this.sessionUnsubscribe = null;
+    }
+    if (pendingSync) {
+      try {
+        await pendingSync;
+      } catch {
+        // Best effort: close should continue even if sync failed.
+      }
     }
     this.db.close();
     INDEX_CACHE.delete(this.cacheKey);

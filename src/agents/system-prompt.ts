@@ -61,9 +61,20 @@ function buildUserIdentitySection(ownerLine: string | undefined, isMinimal: bool
   return ["## User Identity", ownerLine, ""];
 }
 
-function buildTimeSection(params: { userTimezone?: string }) {
+function buildTimeSection(params: {
+  userTimezone?: string;
+  userTime?: string;
+  userTimeFormat?: ResolvedTimeFormat;
+}) {
   if (!params.userTimezone) return [];
-  return ["## Current Date & Time", `Time zone: ${params.userTimezone}`, ""];
+  const lines = ["## Current Date & Time", `Time zone: ${params.userTimezone}`];
+  if (params.userTime?.trim()) {
+    lines.push(`Current local time: ${params.userTime}`);
+  } else if (params.userTimeFormat) {
+    lines.push(`Time format: ${params.userTimeFormat}-hour`);
+  }
+  lines.push("");
+  return lines;
 }
 
 function buildReplyTagsSection(isMinimal: boolean) {
@@ -457,6 +468,8 @@ export function buildAgentSystemPrompt(params: {
     ...buildUserIdentitySection(ownerLine, isMinimal),
     ...buildTimeSection({
       userTimezone,
+      userTime: params.userTime,
+      userTimeFormat: params.userTimeFormat,
     }),
     "## Workspace Files (injected)",
     "These user-editable files are loaded by Clawdbot and included below in Project Context.",

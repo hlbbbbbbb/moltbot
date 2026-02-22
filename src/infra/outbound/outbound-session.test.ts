@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ClawdbotConfig } from "../../config/config.js";
@@ -113,5 +116,46 @@ describe("resolveOutboundSessionRoute", () => {
 
     expect(route?.sessionKey).toBe("agent:main:slack:group:g123");
     expect(route?.from).toBe("slack:group:G123");
+  });
+
+  it("reuses existing session keys when direct routes collapse to main", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "outbound-session-"));
+    const storePath = path.join(tempDir, "sessions.json");
+    fs.writeFileSync(
+      storePath,
+      JSON.stringify({
+        "agent:main:main": {
+          sessionId: "main-session",
+          updatedAt: 100,
+        },
+        "agent:main:feishu:default:oc_abc123": {
+          sessionId: "feishu-session",
+          updatedAt: 200,
+          lastChannel: "feishu",
+          lastTo: "user:ou_abc123",
+        },
+      }),
+      "utf-8",
+    );
+
+    try {
+      const cfg = {
+        session: {
+          store: storePath,
+        },
+      } as ClawdbotConfig;
+
+      const route = await resolveOutboundSessionRoute({
+        cfg,
+        channel: "feishu",
+        agentId: "main",
+        target: "user:ou_abc123",
+      });
+
+      expect(route?.sessionKey).toBe("agent:main:feishu:default:oc_abc123");
+      expect(route?.baseSessionKey).toBe("agent:main:feishu:default:oc_abc123");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

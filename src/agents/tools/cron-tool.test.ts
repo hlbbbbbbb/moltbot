@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const callGatewayMock = vi.fn();
+const loadSessionStoreMock = vi.fn();
+const resolveStorePathMock = vi.fn();
+const resolveSessionDeliveryTargetMock = vi.fn();
 vi.mock("../../gateway/call.js", () => ({
   callGateway: (opts: unknown) => callGatewayMock(opts),
 }));
 
 vi.mock("../agent-scope.js", () => ({
   resolveSessionAgentId: () => "agent-123",
+}));
+vi.mock("../../config/sessions.js", () => ({
+  loadSessionStore: (path: unknown) => loadSessionStoreMock(path),
+  resolveStorePath: (storePath: unknown, opts: unknown) => resolveStorePathMock(storePath, opts),
+}));
+vi.mock("../../infra/outbound/targets.js", () => ({
+  resolveSessionDeliveryTarget: (params: unknown) => resolveSessionDeliveryTargetMock(params),
 }));
 
 import { createCronTool } from "./cron-tool.js";
@@ -15,6 +25,12 @@ describe("cron tool", () => {
   beforeEach(() => {
     callGatewayMock.mockReset();
     callGatewayMock.mockResolvedValue({ ok: true });
+    resolveStorePathMock.mockReset();
+    resolveStorePathMock.mockReturnValue("/tmp/sessions.json");
+    loadSessionStoreMock.mockReset();
+    loadSessionStoreMock.mockReturnValue({});
+    resolveSessionDeliveryTargetMock.mockReset();
+    resolveSessionDeliveryTargetMock.mockReturnValue({});
   });
 
   it.each([
@@ -230,5 +246,64 @@ describe("cron tool", () => {
     };
     expect(call.method).toBe("cron.add");
     expect(call.params?.agentId).toBeNull();
+  });
+
+  it("pins cron delivery to the current session route for agentTurn jobs without explicit target", async () => {
+    loadSessionStoreMock.mockReturnValue({
+      main: {
+        sessionId: "s1",
+        updatedAt: Date.now(),
+        lastChannel: "feishu",
+        lastTo: "user:ou_test_123",
+      },
+    });
+    resolveSessionDeliveryTargetMock.mockReturnValue({
+      channel: "feishu",
+      to: "user:ou_test_123",
+    });
+
+    const tool = createCronTool({ agentSessionKey: "main" });
+    await tool.execute("call-pin-route", {
+      action: "add",
+      job: {
+        name: "route pin",
+        schedule: { atMs: 123 },
+        payload: { kind: "agentTurn", message: "do it" },
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      method?: string;
+      params?: { payload?: { channel?: string; to?: string } };
+    };
+    expect(call.method).toBe("cron.add");
+    expect(call.params?.payload?.channel).toBe("feishu");
+    expect(call.params?.payload?.to).toBe("user:ou_test_123");
+  });
+
+  it("keeps explicit delivery target unchanged for agentTurn jobs", async () => {
+    const tool = createCronTool({ agentSessionKey: "main" });
+    await tool.execute("call-keep-route", {
+      action: "add",
+      job: {
+        name: "explicit route",
+        schedule: { atMs: 123 },
+        payload: {
+          kind: "agentTurn",
+          message: "do it",
+          channel: "telegram",
+          to: "123456",
+        },
+      },
+    });
+
+    const call = callGatewayMock.mock.calls[0]?.[0] as {
+      method?: string;
+      params?: { payload?: { channel?: string; to?: string } };
+    };
+    expect(call.method).toBe("cron.add");
+    expect(call.params?.payload?.channel).toBe("telegram");
+    expect(call.params?.payload?.to).toBe("123456");
+    expect(resolveSessionDeliveryTargetMock).not.toHaveBeenCalled();
   });
 });

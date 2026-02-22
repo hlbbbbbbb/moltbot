@@ -99,8 +99,9 @@ async function getFullSessionContent(sessionFilePath: string): Promise<string | 
  * Save session summary to memory when /new or /reset command is triggered
  */
 const saveSessionToMemory: HookHandler = async (event) => {
-  // Trigger only on 'new' command (reset is for discarding sessions without saving)
-  if (event.type !== "command" || event.action !== "new") {
+  // Trigger on reset/new commands so context is persisted before either action.
+  const isResetOrNew = event.action === "new" || event.action === "reset";
+  if (event.type !== "command" || !isResetOrNew) {
     return;
   }
 

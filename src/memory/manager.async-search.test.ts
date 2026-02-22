@@ -79,4 +79,85 @@ describe("memory search async sync", () => {
     ]);
     expect(resolved).toBe(true);
   });
+
+  it("returns immediately from sync after close", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "text-embedding-3-small",
+            store: { path: indexPath },
+            sync: { watch: false, onSessionStart: false, onSearch: false },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    };
+
+    const result = await getMemorySearchManager({ cfg, agentId: "main" });
+    expect(result.manager).not.toBeNull();
+    if (!result.manager) throw new Error("manager missing");
+    manager = result.manager;
+
+    await manager.close();
+    const runSyncSpy = vi.fn(async () => undefined);
+    (manager as unknown as { runSync: typeof runSyncSpy }).runSync = runSyncSpy;
+
+    await (manager as unknown as { sync: (params?: unknown) => Promise<void> }).sync({
+      reason: "after-close",
+    });
+
+    expect(runSyncSpy).not.toHaveBeenCalled();
+  });
+
+  it("waits for in-flight sync before close resolves", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "text-embedding-3-small",
+            store: { path: indexPath },
+            sync: { watch: false, onSessionStart: false, onSearch: false },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    };
+
+    const result = await getMemorySearchManager({ cfg, agentId: "main" });
+    expect(result.manager).not.toBeNull();
+    if (!result.manager) throw new Error("manager missing");
+    manager = result.manager;
+
+    let releaseSync: (() => void) | undefined;
+    const syncBlock = new Promise<void>((resolve) => {
+      releaseSync = resolve;
+    });
+    const runSyncSpy = vi.fn(async () => await syncBlock);
+    (manager as unknown as { runSync: typeof runSyncSpy }).runSync = runSyncSpy;
+
+    const syncPromise = (manager as unknown as { sync: (params?: unknown) => Promise<void> }).sync({
+      reason: "manual",
+    });
+
+    await Promise.resolve();
+
+    let closeResolved = false;
+    const closePromise = manager.close().then(() => {
+      closeResolved = true;
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(closeResolved).toBe(false);
+
+    releaseSync?.();
+
+    await syncPromise;
+    await closePromise;
+    expect(closeResolved).toBe(true);
+  });
 });

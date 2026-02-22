@@ -2,7 +2,11 @@ import type { MsgContext } from "../../auto-reply/templating.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelId } from "../../channels/plugins/types.js";
 import type { ClawdbotConfig } from "../../config/config.js";
-import { recordSessionMetaFromInbound, resolveStorePath } from "../../config/sessions.js";
+import {
+  loadSessionStore,
+  recordSessionMetaFromInbound,
+  resolveStorePath,
+} from "../../config/sessions.js";
 import { parseDiscordTarget } from "../../discord/targets.js";
 import { parseIMessageTarget, normalizeIMessageHandle } from "../../imessage/targets.js";
 import {
@@ -10,7 +14,7 @@ import {
   type RoutePeer,
   type RoutePeerKind,
 } from "../../routing/resolve-route.js";
-import { resolveThreadSessionKeys } from "../../routing/session-key.js";
+import { buildAgentMainSessionKey, resolveThreadSessionKeys } from "../../routing/session-key.js";
 import { resolveSlackAccount } from "../../slack/accounts.js";
 import { createSlackWebClient } from "../../slack/client.js";
 import { normalizeAllowListLower } from "../../slack/monitor/allow-list.js";
@@ -79,6 +83,88 @@ function stripProviderPrefix(raw: string, channel: string): string {
 
 function stripKindPrefix(raw: string): string {
   return raw.replace(/^(user|channel|group|conversation|room|dm):/i, "").trim();
+}
+
+function resolveComparableTargetValues(raw: string, channel: string): Set<string> {
+  const values = new Set<string>();
+  const add = (value?: string | null) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return;
+    values.add(trimmed.toLowerCase());
+  };
+  const trimmed = raw.trim();
+  add(trimmed);
+  const providerStripped = stripProviderPrefix(trimmed, channel);
+  add(providerStripped);
+  add(stripKindPrefix(trimmed));
+  add(stripKindPrefix(providerStripped));
+  add(stripProviderPrefix(stripKindPrefix(trimmed), channel));
+  return values;
+}
+
+function hasSetIntersection(left: Set<string>, right: Set<string>): boolean {
+  for (const value of left) {
+    if (right.has(value)) return true;
+  }
+  return false;
+}
+
+function resolveExistingSessionKeyForDelivery(params: {
+  cfg: ClawdbotConfig;
+  agentId: string;
+  channel: ChannelId;
+  target: string;
+  accountId?: string | null;
+  threadId?: string | number | null;
+}): string | null {
+  const storePath = resolveStorePath(params.cfg.session?.store, {
+    agentId: params.agentId,
+  });
+  const store = loadSessionStore(storePath);
+  const channelKey = params.channel.trim().toLowerCase();
+  const targetValues = resolveComparableTargetValues(params.target, channelKey);
+  const requestedAccountId = params.accountId?.trim();
+  const requestedThreadId = normalizeThreadId(params.threadId);
+  const mainSessionKey = buildAgentMainSessionKey({
+    agentId: params.agentId,
+    mainKey: params.cfg.session?.mainKey,
+  }).toLowerCase();
+
+  let best: {
+    sessionKey: string;
+    score: number;
+    updatedAt: number;
+  } | null = null;
+
+  for (const [sessionKey, entry] of Object.entries(store)) {
+    const entryChannel = (entry.lastChannel ?? entry.deliveryContext?.channel ?? "")
+      .trim()
+      .toLowerCase();
+    if (!entryChannel || entryChannel !== channelKey) continue;
+
+    const entryToRaw = (entry.lastTo ?? entry.deliveryContext?.to ?? "").trim();
+    if (!entryToRaw) continue;
+    const entryToValues = resolveComparableTargetValues(entryToRaw, channelKey);
+    if (!hasSetIntersection(targetValues, entryToValues)) continue;
+
+    const entryAccountId = (entry.lastAccountId ?? entry.deliveryContext?.accountId ?? "").trim();
+    if (requestedAccountId && entryAccountId && entryAccountId !== requestedAccountId) continue;
+
+    const entryThreadId = normalizeThreadId(entry.lastThreadId ?? entry.deliveryContext?.threadId);
+    if (requestedThreadId && entryThreadId !== requestedThreadId) continue;
+
+    const key = sessionKey.trim().toLowerCase();
+    const updatedAt =
+      typeof entry.updatedAt === "number" && Number.isFinite(entry.updatedAt) ? entry.updatedAt : 0;
+    const exactTo = entryToRaw.toLowerCase() === params.target.trim().toLowerCase();
+    const nonMain = key !== mainSessionKey;
+    const score = (nonMain ? 4 : 0) + (exactTo ? 3 : 0) + (entryAccountId ? 1 : 0);
+    if (!best || score > best.score || (score === best.score && updatedAt > best.updatedAt)) {
+      best = { sessionKey: key, score, updatedAt };
+    }
+  }
+
+  return best?.sessionKey ?? null;
 }
 
 function inferPeerKind(params: {
@@ -768,40 +854,88 @@ export async function resolveOutboundSessionRoute(
 ): Promise<OutboundSessionRoute | null> {
   const target = params.target.trim();
   if (!target) return null;
+  let route: OutboundSessionRoute | null;
   switch (params.channel) {
     case "slack":
-      return await resolveSlackSession({ ...params, target });
+      route = await resolveSlackSession({ ...params, target });
+      break;
     case "discord":
-      return resolveDiscordSession({ ...params, target });
+      route = resolveDiscordSession({ ...params, target });
+      break;
     case "telegram":
-      return resolveTelegramSession({ ...params, target });
+      route = resolveTelegramSession({ ...params, target });
+      break;
     case "whatsapp":
-      return resolveWhatsAppSession({ ...params, target });
+      route = resolveWhatsAppSession({ ...params, target });
+      break;
     case "signal":
-      return resolveSignalSession({ ...params, target });
+      route = resolveSignalSession({ ...params, target });
+      break;
     case "imessage":
-      return resolveIMessageSession({ ...params, target });
+      route = resolveIMessageSession({ ...params, target });
+      break;
     case "matrix":
-      return resolveMatrixSession({ ...params, target });
+      route = resolveMatrixSession({ ...params, target });
+      break;
     case "msteams":
-      return resolveMSTeamsSession({ ...params, target });
+      route = resolveMSTeamsSession({ ...params, target });
+      break;
     case "mattermost":
-      return resolveMattermostSession({ ...params, target });
+      route = resolveMattermostSession({ ...params, target });
+      break;
     case "bluebubbles":
-      return resolveBlueBubblesSession({ ...params, target });
+      route = resolveBlueBubblesSession({ ...params, target });
+      break;
     case "nextcloud-talk":
-      return resolveNextcloudTalkSession({ ...params, target });
+      route = resolveNextcloudTalkSession({ ...params, target });
+      break;
     case "zalo":
-      return resolveZaloSession({ ...params, target });
+      route = resolveZaloSession({ ...params, target });
+      break;
     case "zalouser":
-      return resolveZalouserSession({ ...params, target });
+      route = resolveZalouserSession({ ...params, target });
+      break;
     case "nostr":
-      return resolveNostrSession({ ...params, target });
+      route = resolveNostrSession({ ...params, target });
+      break;
     case "tlon":
-      return resolveTlonSession({ ...params, target });
+      route = resolveTlonSession({ ...params, target });
+      break;
     default:
-      return resolveFallbackSession({ ...params, target });
+      route = resolveFallbackSession({ ...params, target });
+      break;
   }
+
+  if (!route) return null;
+
+  const mainSessionKey = buildAgentMainSessionKey({
+    agentId: params.agentId,
+    mainKey: params.cfg.session?.mainKey,
+  }).toLowerCase();
+  if (route.baseSessionKey.toLowerCase() !== mainSessionKey) {
+    return route;
+  }
+
+  // Some plugin channels persist inbound direct chats under explicit per-peer session keys,
+  // while outbound route derivation may collapse to main (dmScope=main). Reuse the existing
+  // delivery-context session key when available so mirrored assistant text lands in the same thread.
+  const existingSessionKey = resolveExistingSessionKeyForDelivery({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    channel: params.channel,
+    target,
+    accountId: params.accountId,
+    threadId: params.threadId ?? params.replyToId,
+  });
+  if (!existingSessionKey || existingSessionKey === route.sessionKey.toLowerCase()) {
+    return route;
+  }
+
+  return {
+    ...route,
+    baseSessionKey: existingSessionKey,
+    sessionKey: existingSessionKey,
+  };
 }
 
 export async function ensureOutboundSessionEntry(params: {

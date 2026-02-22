@@ -8,6 +8,7 @@ export const loggingState = {
   consoleTimestampPrefix: false,
   consoleSubsystemFilter: null as string[] | null,
   resolvingConsoleSettings: false,
+  resolvingLoggerSettings: false,
   rawConsole: null as {
     log: typeof console.log;
     info: typeof console.info;

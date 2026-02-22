@@ -9,6 +9,40 @@ import { normalizeModelCompat } from "../model-compat.js";
 import { normalizeProviderId } from "../model-selection.js";
 
 type InlineModelEntry = ModelDefinitionConfig & { provider: string };
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const ANTHROPIC_SONNET_46_LATEST = "claude-sonnet-4-6";
+
+function normalizeAnthropicSonnet46ModelId(modelId: string): string | null {
+  const trimmed = modelId.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (trimmed === ANTHROPIC_SONNET_46_LATEST || trimmed === "claude-sonnet-4.6") {
+    return ANTHROPIC_SONNET_46_LATEST;
+  }
+  const dated = /^claude-sonnet-4(?:-6|\.6)-(\d{8})$/.exec(trimmed);
+  if (!dated) return null;
+  return `${ANTHROPIC_SONNET_46_LATEST}-${dated[1]}`;
+}
+
+function buildAnthropicSonnet46FallbackModel(modelId: string): Model<Api> {
+  const isLatest = modelId === ANTHROPIC_SONNET_46_LATEST;
+  return {
+    id: modelId,
+    name: isLatest ? "Claude Sonnet 4.6 (latest)" : "Claude Sonnet 4.6",
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: ANTHROPIC_BASE_URL,
+    reasoning: true,
+    input: ["text", "image"],
+    cost: {
+      input: 3,
+      output: 15,
+      cacheRead: 0.3,
+      cacheWrite: 3.75,
+    },
+    contextWindow: 200000,
+    maxTokens: 64000,
+  } as Model<Api>;
+}
 
 export function buildInlineProviderModels(
   providers: Record<string, { models?: ModelDefinitionConfig[] }>,
@@ -66,6 +100,16 @@ export function resolveModel(
       };
     }
     const providerCfg = providers[provider];
+    if (!providerCfg && normalizedProvider === "anthropic") {
+      const anthropicModelId = normalizeAnthropicSonnet46ModelId(modelId);
+      if (anthropicModelId) {
+        // Keep Sonnet 4.6 usable while upstream model catalogs roll forward.
+        const fallbackModel = normalizeModelCompat(
+          buildAnthropicSonnet46FallbackModel(anthropicModelId),
+        );
+        return { model: fallbackModel, authStorage, modelRegistry };
+      }
+    }
     if (providerCfg || modelId.startsWith("mock-")) {
       const fallbackModel: Model<Api> = normalizeModelCompat({
         id: modelId,

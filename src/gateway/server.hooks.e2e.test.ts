@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
+import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { loadConfig } from "../config/config.js";
 import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
+import { resolveOutboundSessionRoute } from "../infra/outbound/outbound-session.js";
 import { drainSystemEvents, peekSystemEvents } from "../infra/system-events.js";
 import {
   cronIsolatedRun,
@@ -13,6 +16,16 @@ import {
 installGatewayTestHooks({ scope: "suite" });
 
 const resolveMainKey = () => resolveMainSessionKeyFromConfig();
+
+async function waitForSystemEventInSession(sessionKey: string, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const events = peekSystemEvents(sessionKey);
+    if (events.length > 0) return events;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timeout waiting for system event in session ${sessionKey}`);
+}
 
 describe("gateway server hooks", () => {
   test("handles auth, wake, and agent flows", async () => {
@@ -152,6 +165,55 @@ describe("gateway server hooks", () => {
         body: "{",
       });
       expect(resBadJson.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("routes deliverable hook summaries to the delivery session queue", async () => {
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
+    testState.sessionConfig = { dmScope: "per-channel-peer" };
+    const port = await getFreePort();
+    const server = await startGatewayServer(port);
+    try {
+      cronIsolatedRun.mockReset();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
+      });
+
+      const resAgent = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Do it",
+          name: "Email",
+          deliver: true,
+          channel: "telegram",
+          to: "8546148500",
+          wakeMode: "now",
+        }),
+      });
+      expect(resAgent.status).toBe(202);
+
+      const cfg = loadConfig();
+      const route = await resolveOutboundSessionRoute({
+        cfg,
+        channel: "telegram",
+        agentId: resolveDefaultAgentId(cfg),
+        target: "8546148500",
+      });
+      expect(route).not.toBeNull();
+
+      const routeSessionKey = route!.sessionKey;
+      const routeEvents = await waitForSystemEventInSession(routeSessionKey);
+      expect(routeEvents.some((event) => event.includes("Hook Email: done"))).toBe(true);
+      expect(peekSystemEvents(resolveMainKey())).toEqual([]);
+
+      drainSystemEvents(routeSessionKey);
     } finally {
       await server.close();
     }

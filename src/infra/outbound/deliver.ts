@@ -19,6 +19,7 @@ import type { sendMessageTelegram } from "../../telegram/send.js";
 import type { sendMessageWhatsApp } from "../../web/outbound.js";
 import {
   appendAssistantMessageToSessionTranscript,
+  resolveStorePath,
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
 import type { NormalizedOutboundPayload } from "./payloads.js";
@@ -360,6 +361,9 @@ export async function deliverOutboundPayloads(params: {
         agentId: params.mirror.agentId,
         sessionKey: params.mirror.sessionKey,
         text: mirrorText,
+        storePath: resolveStorePath(params.cfg.session?.store, {
+          agentId: params.mirror.agentId,
+        }),
       });
     }
   }

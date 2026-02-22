@@ -40,7 +40,6 @@ export async function resolveDeliveryTarget(
     entry: main,
     requestedChannel,
     explicitTo,
-    allowMismatchedLastTo: true,
   });
 
   let fallbackChannel: Exclude<OutboundChannel, "none"> | undefined;
@@ -59,7 +58,6 @@ export async function resolveDeliveryTarget(
         requestedChannel,
         explicitTo,
         fallbackChannel,
-        allowMismatchedLastTo: true,
         mode: preliminary.mode,
       })
     : preliminary;

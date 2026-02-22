@@ -46,7 +46,7 @@ describe("onboard-hooks", () => {
     hooks: [
       {
         name: "session-memory",
-        description: "Save session context to memory when /new command is issued",
+        description: "Save session context to memory when /new or /reset command is issued",
         source: "clawdbot-bundled",
         pluginId: undefined,
         filePath: "/mock/workspace/hooks/session-memory/HOOK.md",
@@ -54,7 +54,7 @@ describe("onboard-hooks", () => {
         handlerPath: "/mock/workspace/hooks/session-memory/handler.js",
         hookKey: "session-memory",
         emoji: "💾",
-        events: ["command:new"],
+        events: ["command:new", "command:reset"],
         homepage: undefined,
         always: false,
         disabled: false,
@@ -136,7 +136,7 @@ describe("onboard-hooks", () => {
           {
             value: "session-memory",
             label: "💾 session-memory",
-            hint: "Save session context to memory when /new command is issued",
+            hint: "Save session context to memory when /new or /reset command is issued",
           },
           {
             value: "command-logger",

@@ -1,7 +1,12 @@
 import crypto from "node:crypto";
 
 import type { ClawdbotConfig } from "../../config/config.js";
-import { loadSessionStore, resolveStorePath, type SessionEntry } from "../../config/sessions.js";
+import {
+  loadSessionStore,
+  resolveSessionTranscriptPath,
+  resolveStorePath,
+  type SessionEntry,
+} from "../../config/sessions.js";
 
 export function resolveCronSession(params: {
   cfg: ClawdbotConfig;
@@ -15,21 +20,17 @@ export function resolveCronSession(params: {
   });
   const store = loadSessionStore(storePath);
   const entry = store[params.sessionKey];
-  const sessionId = crypto.randomUUID();
-  const systemSent = false;
+  const existingSessionId = entry?.sessionId?.trim();
+  const sessionId = existingSessionId || crypto.randomUUID();
+  const systemSent = entry?.systemSent ?? false;
+  const isNewSession = !existingSessionId;
   const sessionEntry: SessionEntry = {
+    ...(entry ?? {}),
     sessionId,
+    sessionFile:
+      entry?.sessionFile?.trim() || resolveSessionTranscriptPath(sessionId, params.agentId),
     updatedAt: params.nowMs,
     systemSent,
-    thinkingLevel: entry?.thinkingLevel,
-    verboseLevel: entry?.verboseLevel,
-    model: entry?.model,
-    contextTokens: entry?.contextTokens,
-    sendPolicy: entry?.sendPolicy,
-    lastChannel: entry?.lastChannel,
-    lastTo: entry?.lastTo,
-    lastAccountId: entry?.lastAccountId,
-    skillsSnapshot: entry?.skillsSnapshot,
   };
-  return { storePath, store, sessionEntry, systemSent, isNewSession: true };
+  return { storePath, store, sessionEntry, systemSent, isNewSession };
 }
