@@ -120,8 +120,13 @@
 ## FIT5231 - Indigenous Data Sovereignty
 
 **URL:** https://learning.monash.edu/course/view.php?id=41065
+**Ed Discussion:** https://edstem.org/au/courses/34342/discussion
 **Nature:** 理论+伦理课，围绕澳大利亚原住民数据权利。每周阅读+案例分析+书面作业。
-**讲师：** Narissa Timbery (Narissa.Timbery@monash.edu, 主考) / Zoe Henderson (Zoe.Henderson@monash.edu, 协调员)
+**讲师：** Narissa Timbery (Narissa.Timbery@monash.edu, 主考) / Zoe, Khalid, Megan, Joy（教学团队）
+
+### 上课地点（Workshop）
+- **周四 workshop：** Alan Finkel Building for Technology and Design, **Bldg 94, Room G05**，下午 2pm 开始
+- **周五 workshop：** 7 Innovation Walk 'Science Portables', **Bldg 79P, Room AG18**，早上 8am 开始
 
 ### 全学期周计划
 | 周次 | 主题 |
@@ -150,6 +155,19 @@
 | 4/2 23:55 | Assignment 1 - Part... | Assignment is due（Add submission）|
 
 *Assignment 1 各 Part 的完整名称需进课程 Assessments 页查看确认。*
+
+---
+
+## Ed Discussion 平台
+
+**Dashboard:** https://edstem.org/au/dashboard
+**登录方式：** 输入 Monash 邮箱（yhua0298@student.monash.edu）后自动跳 Okta SSO，clawd browser 已有 session，直接进入
+
+| 课程 | Ed URL | 未读 |
+|------|--------|------|
+| FIT5231 2026 | https://edstem.org/au/courses/34342/discussion | - |
+| FIT5120 | 暂无 | - |
+| FIT5122 | 暂无 | - |
 
 ---
 

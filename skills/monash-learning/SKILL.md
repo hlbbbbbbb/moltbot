@@ -9,10 +9,16 @@ description: Access and browse 一航's Monash University learning platform (Moo
 
 ## URLs
 
+### Moodle (学习平台)
 - **Dashboard (all DDLs):** https://learning.monash.edu/my/
 - **FIT5120** Industry Experience Studio Project: https://learning.monash.edu/course/view.php?id=41056
 - **FIT5122** Professional Practice: https://learning.monash.edu/course/view.php?id=41057
 - **FIT5231** Indigenous Data Sovereignty: https://learning.monash.edu/course/view.php?id=41065
+
+### Ed Discussion (Q&A / 公告)
+- **Ed Dashboard:** https://edstem.org/au/dashboard
+- **FIT5231 Ed:** https://edstem.org/au/courses/34342/discussion
+- FIT5120 / FIT5122 暂无 Ed 课程（截至 2026-03-01）
 
 ## Workflow
 
