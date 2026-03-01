@@ -4,7 +4,7 @@
 
 **URL:** https://learning.monash.edu/course/view.php?id=41056
 **Nature:** 真实行业项目，团队合作（4-6人），敏捷迭代。没有传统考试，全靠交付物。
-**讲师：** Jyoti Joshi Dhall (jyoti.Joshi@monash.edu) / Sameera Patterson (Sameera.Patterson@monash.edu)
+**讲师：** Jyoti Joshi Dhall (Jyoti.Joshi@monash.edu) / Sameera Patterson (Sameera.Patterson@monash.edu)
 
 ### 课程结构
 每周分三块：
@@ -35,7 +35,7 @@
 1. Complete Mandatory Forms & Student Unit Guide Quiz（截止 Week 1 结束）
 2. Problem Statement（含 artifacts）– Moodle Submission（**截止 3月5日周四 11:55PM**）
 
-### 全部 DDL（已知）
+### 全部 DDL
 
 | 日期 | 任务 | 权重 |
 |------|------|------|
@@ -79,25 +79,82 @@
 ## FIT5122 - Professional Practice
 
 **URL:** https://learning.monash.edu/course/view.php?id=41057
-**Nature:** 职业技能、伦理、沟通。通常有反思和书面提交。
+**Nature:** 职业技能、沟通、伦理、团队协作。书面 + 演示 + 项目类作业。
+**讲师：** Peter Brown (Peter.Brown@monash.edu, 主考) / Garry Young / Sean Mullins / Yam Wai Keat (马来西亚协调员)
 
-*具体 DDL：进课程页面查看。*
+### 全学期周计划（按章节）
+| 周次 | 主题 |
+|------|------|
+| Week 1 | Chapter 1 - Meetings, Presentations & AI: Cultivating Professional Communication |
+| Week 2-4 | Chapter 2 - Working in Teams: Mastering Collaborative and... |
+| Week 5-6 | Chapter 3 - Quality and Reliability: Ensuring Rigorous... |
+| Week 7-8 | Chapter 4 - Effective Communication: Developing... |
+| Week 9-11 | Chapter 5 - The Law, Ethics, and Privacy: Navigating Complex... |
+| Week 12 | Chapter 6 - My Career: Strategically Managing Lifelong... |
+
+### Week 1 学习目标
+- Justify what differentiates a successful meeting and strategies to improve effectiveness
+- Explain challenges specific to virtual meetings
+- Identify strategies for facilitating and chairing meetings
+- Justify what differentiates a successful presentation
+
+### Week 1 资源（左侧栏）
+- Professional Risks / How to run a great st... / How to effectively c...
+- Writing an agenda / Bases for effective... / General hints for M...
+- Notes on Presentati... / 14 Dos and Don'ts / Strategies for deliv...
+
+### 作业结构（总分分配）
+| 作业 | 权重 |
+|------|------|
+| 1. Exercise | 40% |
+| 2. Demonstration | 25% |
+| 3. Project | 35% |
+| Supplementary assessment | - |
+
+*具体每项作业的 DDL：进课程 Assessments 页面查看。Task tracker 当前显示 "No activities require action"。*
+
+**Assessments 页面：** https://learning.monash.edu/course/view.php?id=41057&section=56
 
 ---
 
 ## FIT5231 - Indigenous Data Sovereignty
 
 **URL:** https://learning.monash.edu/course/view.php?id=41065
-**Nature:** 围绕澳大利亚原住民数据权利的理论+伦理课。作业包括分析和书面作业。
+**Nature:** 理论+伦理课，围绕澳大利亚原住民数据权利。每周阅读+案例分析+书面作业。
+**讲师：** Narissa Timbery (Narissa.Timbery@monash.edu, 主考) / Zoe Henderson (Zoe.Henderson@monash.edu, 协调员)
 
-### 疑似 DDL（需核实）
-- 3/20: Assignment 1 - Part C - Wordlist Dilly Bag 1 (1%) — "Dilly Bag" 是原住民文化词汇，极可能属于本课
-- 3/27: Assignment 1 - Part D - Resource Analysis (5%)
+### 全学期周计划
+| 周次 | 主题 |
+|------|------|
+| Week 1 | Introduction, Positionality, UNDRIP & meaning of sovereignty（2-8 Mar）|
+| Week 2 | Fundamentals of Indigenous Data Sovereignty - International... |
+| Week 3 | Information cultures |
+| Week 4 | Indigenous Case Study - Aotearoa（新西兰）|
+| Week 5 | Indigenous Case Study - TBA |
+| Week 6 | Indigenous knowledge systems and Indigenous data |
+| Week 7 | Declaring IDS - metadata and AI |
+| Week 8 | Declaring IDS - information systems |
+| Week 9 | Implementing IDS - collective... |
+| Week 10 | Implementing IDS - Community first |
+| Week 11 | Implementing IDS - protocols and... |
+| Week 12 | Implementing IDS - ethics |
 
-*进课程页面确认完整作业列表。*
+**Week 1 要求：** 课前熟悉 UNDRIP（联合国土著人民权利宣言），课上由 Narissa Timbery 介绍本课结构和考核方式。
+
+### 作业 DDL（Assignment 1 系列）
+| 日期 | 任务 | 状态 |
+|------|------|------|
+| 3/15 23:55 | Assignment 1 - Part A - Quiz | Quiz closes |
+| 3/20 23:55 | Assignment 1 - Part... | Assignment is due |
+| 3/27 23:55 | Assignment 1 - Part... | Assignment is due（Add submission）|
+| 4/2 23:55 | Assignment 1 - Part... | Assignment is due（Add submission）|
+
+*Assignment 1 各 Part 的完整名称需进课程 Assessments 页查看确认。*
 
 ---
 
 ## clawd 浏览器登录状态
-- 已于 2026-03-01 通过一航手动登录 Monash Okta，session 存入 clawd profile
-- 今后使用 profile=clawd 访问 Moodle 无需重新登录（除非 session 过期）
+- 已于 2026-03-01 通过一航手动登录 Monash Okta（无痕模式），session 存入 clawd profile
+- **登录技巧：** 普通模式 Okta 有时报错；用无痕模式窗口（Cmd+Shift+N）登录 Moodle 即可
+- **重要：** 用同一个已登录的 tab 内 navigate，不要 open 新 tab（新 tab 会触发二次验证）
+- Session 过期后需要用户在 clawd 浏览器窗口手动重新登录一次

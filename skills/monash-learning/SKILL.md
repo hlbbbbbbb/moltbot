@@ -25,9 +25,18 @@ description: Access and browse 一航's Monash University learning platform (Moo
 ## Tips
 
 - **优先用 `profile=clawd`**（已于 2026-03-01 登录 Monash，session 持久保存，无需 attach tab）
-- 如果 clawd session 过期（跳转到 Okta 登录页），告知用户在 clawd 浏览器窗口手动登录一次即可恢复
 - `profile=chrome` 需要用户每次 attach tab，不推荐用于 Moodle
 - If the tab gets detached mid-session, use `browser(action=tabs, profile=clawd)` to find the active tab, or re-open the URL
+- **同一个已登录的 tab 内导航**（navigate 而不是 open 新 tab），否则新 tab 会触发 Okta 二次验证
+
+## 登录方法（Session 过期时）
+
+Monash 使用 Okta SSO，反自动化，必须手动登录：
+
+1. `browser(action=open, profile=clawd, targetUrl="https://learning.monash.edu/my/")`
+2. 截图确认是否跳到 Okta 登录页
+3. 如果跳了：告知用户"clawd 浏览器窗口（会在桌面弹出）需要登录，注意用**无痕模式窗口**（Ctrl+Shift+N / Cmd+Shift+N）打开 Moodle 登录，普通模式有时候 Okta 会报错"
+4. 用户登录完成后，在已登录的 tab 内用 navigate 跳转到目标课程页
 - Dashboard shows the **Timeline** (upcoming DDLs) and **Calendar** — great for quick overview
 - Course pages show weekly sections with readings, quizzes, and assignments
 - For detailed assignment instructions, click through to the assignment/quiz page
