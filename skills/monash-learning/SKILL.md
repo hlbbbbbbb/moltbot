@@ -24,8 +24,10 @@ description: Access and browse 一航's Monash University learning platform (Moo
 
 ## Tips
 
-- Always use `profile=chrome` (user is already logged in)
-- If the tab gets detached mid-session, use `browser(action=tabs, profile=chrome)` to find the active tab, or re-open the URL
+- **优先用 `profile=clawd`**（已于 2026-03-01 登录 Monash，session 持久保存，无需 attach tab）
+- 如果 clawd session 过期（跳转到 Okta 登录页），告知用户在 clawd 浏览器窗口手动登录一次即可恢复
+- `profile=chrome` 需要用户每次 attach tab，不推荐用于 Moodle
+- If the tab gets detached mid-session, use `browser(action=tabs, profile=clawd)` to find the active tab, or re-open the URL
 - Dashboard shows the **Timeline** (upcoming DDLs) and **Calendar** — great for quick overview
 - Course pages show weekly sections with readings, quizzes, and assignments
 - For detailed assignment instructions, click through to the assignment/quiz page
