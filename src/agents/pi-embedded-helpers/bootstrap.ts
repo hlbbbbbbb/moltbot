@@ -70,6 +70,8 @@ export function stripThoughtSignatures<T>(
 }
 
 export const DEFAULT_BOOTSTRAP_MAX_CHARS = 20_000;
+/** Max total chars for all bootstrap files combined. */
+export const DEFAULT_BOOTSTRAP_MAX_TOTAL_CHARS = 60_000;
 const BOOTSTRAP_HEAD_RATIO = 0.7;
 const BOOTSTRAP_TAIL_RATIO = 0.2;
 
@@ -149,9 +151,10 @@ export async function ensureSessionHeader(params: {
 
 export function buildBootstrapContextFiles(
   files: WorkspaceBootstrapFile[],
-  opts?: { warn?: (message: string) => void; maxChars?: number },
+  opts?: { warn?: (message: string) => void; maxChars?: number; maxTotalChars?: number },
 ): EmbeddedContextFile[] {
   const maxChars = opts?.maxChars ?? DEFAULT_BOOTSTRAP_MAX_CHARS;
+  const maxTotalChars = opts?.maxTotalChars ?? DEFAULT_BOOTSTRAP_MAX_TOTAL_CHARS;
   const result: EmbeddedContextFile[] = [];
   for (const file of files) {
     if (file.missing) {
@@ -173,6 +176,27 @@ export function buildBootstrapContextFiles(
       content: trimmed.content,
     });
   }
+
+  // Enforce aggregate bootstrap budget. If total exceeds maxTotalChars,
+  // progressively shrink files from the end (lowest priority) until within budget.
+  let totalChars = result.reduce((sum, f) => sum + f.content.length, 0);
+  if (totalChars > maxTotalChars) {
+    for (let i = result.length - 1; i >= 0 && totalChars > maxTotalChars; i--) {
+      const file = result[i];
+      const overBy = totalChars - maxTotalChars;
+      const currentLen = file.content.length;
+      if (currentLen <= 200) continue; // Don't shrink tiny entries
+
+      const targetLen = Math.max(200, currentLen - overBy);
+      const reTrimmed = trimBootstrapContent(file.content, file.path, targetLen);
+      totalChars += reTrimmed.content.length - currentLen;
+      result[i] = { ...file, content: reTrimmed.content };
+      opts?.warn?.(
+        `bootstrap aggregate budget: further trimmed ${file.path} to ${reTrimmed.content.length} chars`,
+      );
+    }
+  }
+
   return result;
 }
 

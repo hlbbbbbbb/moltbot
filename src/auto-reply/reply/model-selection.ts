@@ -28,6 +28,7 @@ type ModelCatalog = Awaited<ReturnType<typeof loadModelCatalog>>;
 type ModelSelectionState = {
   provider: string;
   model: string;
+  modelCatalog: ModelCatalog;
   allowedModelKeys: Set<string>;
   allowedModelCatalog: ModelCatalog;
   resetModelOverride: boolean;
@@ -351,6 +352,7 @@ export async function createModelSelectionState(params: {
   return {
     provider,
     model,
+    modelCatalog: modelCatalog ?? [],
     allowedModelKeys,
     allowedModelCatalog,
     resetModelOverride,
@@ -364,9 +366,10 @@ export function resolveModelDirectiveSelection(params: {
   defaultProvider: string;
   defaultModel: string;
   aliasIndex: ModelAliasIndex;
+  modelCatalog: ModelCatalog;
   allowedModelKeys: Set<string>;
 }): { selection?: ModelDirectiveSelection; error?: string } {
-  const { raw, defaultProvider, defaultModel, aliasIndex, allowedModelKeys } = params;
+  const { raw, defaultProvider, defaultModel, aliasIndex, modelCatalog, allowedModelKeys } = params;
 
   const rawTrimmed = raw.trim();
   const rawLower = rawTrimmed.toLowerCase();
@@ -383,6 +386,13 @@ export function resolveModelDirectiveSelection(params: {
       ...(alias ? { alias } : undefined),
     };
   };
+
+  const hasExactCatalogMatch = (provider: string, model: string): boolean =>
+    modelCatalog.some(
+      (entry) =>
+        normalizeProviderId(entry.provider) === normalizeProviderId(provider) &&
+        String(entry.id ?? "").trim() === model,
+    );
 
   const resolveFuzzy = (params: {
     provider?: string;
@@ -482,7 +492,15 @@ export function resolveModelDirectiveSelection(params: {
     };
   }
 
-  // If the user specified a provider/model but the exact model isn't allowed,
+  // Never silently downgrade an exact known model request (including default-provider
+  // shorthand like "/model gpt-5.4") when it is outside the allowlist.
+  if (hasExactCatalogMatch(resolved.ref.provider, resolved.ref.model)) {
+    return {
+      error: `Model "${resolved.ref.provider}/${resolved.ref.model}" is not allowed. Use /models to list providers, or /models <provider> to list models.`,
+    };
+  }
+
+  // If the user specified a provider/model and it is not a known catalog model,
   // attempt a fuzzy match within that provider.
   if (rawLower.includes("/")) {
     const slash = rawTrimmed.indexOf("/");

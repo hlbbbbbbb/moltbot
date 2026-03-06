@@ -75,6 +75,7 @@ describe("/model chat UX", () => {
       defaultProvider: "anthropic",
       defaultModel: "claude-opus-4-5",
       aliasIndex: baseAliasIndex(),
+      modelCatalog: [{ provider: "anthropic", id: "claude-opus-4-5" }],
       allowedModelKeys: new Set(["anthropic/claude-opus-4-5"]),
       allowedModelCatalog: [{ provider: "anthropic", id: "claude-opus-4-5" }],
       provider: "anthropic",
@@ -86,6 +87,57 @@ describe("/model chat UX", () => {
       isDefault: true,
     });
     expect(resolved.errorText).toBeUndefined();
+  });
+
+  it("does not downgrade exact provider/model requests to another allowlisted model", () => {
+    const directives = parseInlineDirectives("/model openai-codex/gpt-5.4");
+    const cfg = { commands: { text: true } } as unknown as ClawdbotConfig;
+
+    const resolved = resolveModelSelectionFromDirective({
+      directives,
+      cfg,
+      agentDir: "/tmp/agent",
+      defaultProvider: "anthropic",
+      defaultModel: "claude-opus-4-5",
+      aliasIndex: baseAliasIndex(),
+      modelCatalog: [
+        { provider: "openai-codex", id: "gpt-5.2" },
+        { provider: "openai-codex", id: "gpt-5.4" },
+      ],
+      allowedModelKeys: new Set(["anthropic/claude-opus-4-5", "openai-codex/gpt-5.2"]),
+      allowedModelCatalog: [
+        { provider: "anthropic", id: "claude-opus-4-5" },
+        { provider: "openai-codex", id: "gpt-5.2" },
+      ],
+      provider: "anthropic",
+    });
+
+    expect(resolved.modelSelection).toBeUndefined();
+    expect(resolved.errorText).toContain('Model "openai-codex/gpt-5.4" is not allowed.');
+  });
+
+  it("does not downgrade exact model-id requests on the default provider", () => {
+    const directives = parseInlineDirectives("/model gpt-5.4");
+    const cfg = { commands: { text: true } } as unknown as ClawdbotConfig;
+
+    const resolved = resolveModelSelectionFromDirective({
+      directives,
+      cfg,
+      agentDir: "/tmp/agent",
+      defaultProvider: "openai-codex",
+      defaultModel: "gpt-5.2",
+      aliasIndex: baseAliasIndex(),
+      modelCatalog: [
+        { provider: "openai-codex", id: "gpt-5.2" },
+        { provider: "openai-codex", id: "gpt-5.4" },
+      ],
+      allowedModelKeys: new Set(["openai-codex/gpt-5.2"]),
+      allowedModelCatalog: [{ provider: "openai-codex", id: "gpt-5.2" }],
+      provider: "openai-codex",
+    });
+
+    expect(resolved.modelSelection).toBeUndefined();
+    expect(resolved.errorText).toContain('Model "openai-codex/gpt-5.4" is not allowed.');
   });
 });
 
@@ -116,6 +168,7 @@ describe("handleDirectiveOnly model persist behavior (fixes #1435)", () => {
       defaultProvider: "anthropic",
       defaultModel: "claude-opus-4-5",
       aliasIndex: baseAliasIndex(),
+      modelCatalog: allowedModelCatalog,
       allowedModelKeys,
       allowedModelCatalog,
       resetModelOverride: false,
@@ -150,6 +203,7 @@ describe("handleDirectiveOnly model persist behavior (fixes #1435)", () => {
       defaultProvider: "anthropic",
       defaultModel: "claude-opus-4-5",
       aliasIndex: baseAliasIndex(),
+      modelCatalog: allowedModelCatalog,
       allowedModelKeys,
       allowedModelCatalog,
       resetModelOverride: false,

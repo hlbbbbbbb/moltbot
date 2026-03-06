@@ -2,10 +2,9 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent, TextContent, ToolResultMessage } from "@mariozechner/pi-ai";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
+import { resolveCharsPerToken } from "../../context-budget.js";
 import type { EffectiveContextPruningSettings } from "./settings.js";
 import { makeToolPrunablePredicate } from "./tools.js";
-
-const CHARS_PER_TOKEN_ESTIMATE = 4;
 // We currently skip pruning tool results that contain images. Still, we count them (approx.) so
 // we start trimming prunable tool results earlier when image-heavy context is consuming the window.
 const IMAGE_CHAR_ESTIMATE = 8_000;
@@ -127,6 +126,38 @@ function estimateContextChars(messages: AgentMessage[]): number {
   return messages.reduce((sum, m) => sum + estimateMessageChars(m), 0);
 }
 
+/** Collect a text sample from messages for CJK ratio detection. */
+function collectTextSample(messages: AgentMessage[]): string {
+  const parts: string[] = [];
+  let totalLen = 0;
+  const maxSample = 4_000;
+  for (const msg of messages) {
+    if (totalLen >= maxSample) break;
+    if (msg.role === "user") {
+      const c = msg.content;
+      if (typeof c === "string") {
+        parts.push(c);
+        totalLen += c.length;
+      } else {
+        for (const b of c) {
+          if (b.type === "text") {
+            parts.push(b.text);
+            totalLen += b.text.length;
+          }
+        }
+      }
+    } else if (msg.role === "assistant") {
+      for (const b of msg.content) {
+        if (b.type === "text") {
+          parts.push(b.text);
+          totalLen += b.text.length;
+        }
+      }
+    }
+  }
+  return parts.join(" ");
+}
+
 function findAssistantCutoffIndex(
   messages: AgentMessage[],
   keepLastAssistants: number,
@@ -197,7 +228,10 @@ export function pruneContextMessages(params: {
       : ctx.model?.contextWindow;
   if (!contextWindowTokens || contextWindowTokens <= 0) return messages;
 
-  const charWindow = contextWindowTokens * CHARS_PER_TOKEN_ESTIMATE;
+  // Estimate chars-per-token from message content (CJK-aware: 2.5-4 range).
+  const sampleText = collectTextSample(messages);
+  const charsPerToken = resolveCharsPerToken(sampleText);
+  const charWindow = contextWindowTokens * charsPerToken;
   if (charWindow <= 0) return messages;
 
   const cutoffIndex = findAssistantCutoffIndex(messages, settings.keepLastAssistants);
@@ -248,18 +282,52 @@ export function pruneContextMessages(params: {
   if (ratio < settings.hardClearRatio) {
     return outputAfterSoftTrim;
   }
+
+  // --- Observation masking layer (JetBrains research-backed) ---
+  // Replace old tool results outside the protected window with brief markers
+  // that preserve the tool name and original size. Research shows this is more
+  // effective than LLM summarization (52% cheaper, avoids hiding failure signals).
+  const MASKING_RATIO = 0.2;
+  if (ratio >= MASKING_RATIO) {
+    for (const i of prunableToolIndexes) {
+      if (ratio < settings.hardClearRatio) break;
+      const msg = (next ?? messages)[i];
+      if (!msg || msg.role !== "toolResult") continue;
+
+      const originalChars = estimateMessageChars(msg);
+      // Only mask results that have meaningful content
+      if (originalChars < 200) continue;
+
+      const toolName = (msg as { toolName?: string }).toolName ?? "unknown";
+      const masked: ToolResultMessage = {
+        ...msg,
+        content: [
+          asText(
+            `[Tool: ${toolName}, ${originalChars} chars. Output expired — re-invoke tool if needed.]`,
+          ),
+        ],
+      };
+      if (!next) next = messages.slice();
+      next[i] = masked as unknown as AgentMessage;
+      const afterChars = estimateMessageChars(masked as unknown as AgentMessage);
+      totalChars += afterChars - originalChars;
+      ratio = totalChars / charWindow;
+    }
+  }
+
+  // --- Hard clear layer ---
   if (!settings.hardClear.enabled) {
-    return outputAfterSoftTrim;
+    return next ?? messages;
   }
 
   let prunableToolChars = 0;
   for (const i of prunableToolIndexes) {
-    const msg = outputAfterSoftTrim[i];
+    const msg = (next ?? messages)[i];
     if (!msg || msg.role !== "toolResult") continue;
     prunableToolChars += estimateMessageChars(msg);
   }
   if (prunableToolChars < settings.minPrunableToolChars) {
-    return outputAfterSoftTrim;
+    return next ?? messages;
   }
 
   for (const i of prunableToolIndexes) {

@@ -111,4 +111,43 @@ describe("appendAssistantMessageToSessionTranscript", () => {
       expect(messageLine.message.content[0].text).toBe("Hello from delivery mirror!");
     }
   });
+
+  it("falls back from stale absolute sessionFile paths", async () => {
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = tempDir;
+    try {
+      const sessionId = "legacy-session-id";
+      const sessionKey = "legacy-session";
+      const stalePath = "/Users/huanglaobanban/.clawdbot/agents/main/sessions/legacy.jsonl";
+      const store = {
+        [sessionKey]: {
+          sessionId,
+          updatedAt: Date.now(),
+          sessionFile: stalePath,
+        },
+      };
+      fs.writeFileSync(storePath, JSON.stringify(store), "utf-8");
+
+      const result = await appendAssistantMessageToSessionTranscript({
+        agentId: "main",
+        sessionKey,
+        text: "Recovered from stale path",
+        storePath,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const expectedPath = path.join(sessionsDir, "legacy.jsonl");
+        expect(result.sessionFile).toBe(expectedPath);
+        expect(result.sessionFile).not.toBe(stalePath);
+        expect(fs.existsSync(expectedPath)).toBe(true);
+      }
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+    }
+  });
 });

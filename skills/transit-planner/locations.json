@@ -1,0 +1,26 @@
+{
+  "home": {
+    "address": "213 Normanby Road, Notting Hill VIC 3168",
+    "lat": -37.906,
+    "lng": 145.144,
+    "alias": ["家", "home", "我家", "住的地方"]
+  },
+  "monash": {
+    "address": "Monash University Clayton Campus Bus Loop",
+    "lat": -37.9105,
+    "lng": 145.1363,
+    "alias": ["学校", "monash", "clayton", "莫纳什", "monash clayton", "去学校", "上学"]
+  },
+  "chadstone": {
+    "address": "Chadstone Shopping Centre, VIC 3148",
+    "lat": -37.886,
+    "lng": 145.1831,
+    "alias": ["chadstone", "购物中心", "商场"]
+  },
+  "city": {
+    "address": "Flinders Street Station, Melbourne VIC 3000",
+    "lat": -37.8183,
+    "lng": 144.9671,
+    "alias": ["city", "cbd", "市区", "melbourne", "flinders"]
+  }
+}

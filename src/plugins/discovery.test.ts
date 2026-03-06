@@ -103,6 +103,34 @@ describe("discoverClawdbotPlugins", () => {
     expect(ids).toContain("pack/two");
   });
 
+  it("loads package extension packs declared via openclaw aliases", async () => {
+    const stateDir = makeTempDir();
+    const globalExt = path.join(stateDir, "extensions", "pack-openclaw");
+    fs.mkdirSync(path.join(globalExt, "src"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "pack-openclaw",
+        openclaw: { extensions: ["./src/one.ts"] },
+      }),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(globalExt, "src", "one.ts"),
+      "export default function () {}",
+      "utf-8",
+    );
+
+    const { candidates } = await withStateDir(stateDir, async () => {
+      const { discoverClawdbotPlugins } = await import("./discovery.js");
+      return discoverClawdbotPlugins({});
+    });
+
+    const ids = candidates.map((c) => c.idHint);
+    expect(ids).toContain("pack-openclaw");
+  });
+
   it("derives unscoped ids for scoped packages", async () => {
     const stateDir = makeTempDir();
     const globalExt = path.join(stateDir, "extensions", "voice-call-pack");

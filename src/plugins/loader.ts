@@ -203,10 +203,17 @@ export function loadClawdbotPlugins(options: PluginLoadOptions = {}): PluginRegi
   pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
 
   const pluginSdkAlias = resolvePluginSdkAlias();
+  const pluginSdkAliases = pluginSdkAlias
+    ? {
+        "clawdbot/plugin-sdk": pluginSdkAlias,
+        "openclaw/plugin-sdk": pluginSdkAlias,
+        "openclaw-cn/plugin-sdk": pluginSdkAlias,
+      }
+    : undefined;
   const jiti = createJiti(import.meta.url, {
     interopDefault: true,
     extensions: [".ts", ".tsx", ".mts", ".cts", ".mtsx", ".ctsx", ".js", ".mjs", ".cjs", ".json"],
-    ...(pluginSdkAlias ? { alias: { "clawdbot/plugin-sdk": pluginSdkAlias } } : {}),
+    ...(pluginSdkAliases ? { alias: pluginSdkAliases } : {}),
   });
 
   const manifestByRoot = new Map(

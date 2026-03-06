@@ -18,7 +18,7 @@ describe("applyOpenAICodexModelDefault", () => {
 
   it("sets openai-codex default when model is openai/*", () => {
     const cfg: ClawdbotConfig = {
-      agents: { defaults: { model: "openai/gpt-5.2" } },
+      agents: { defaults: { model: "openai/gpt-5.4" } },
     };
     const applied = applyOpenAICodexModelDefault(cfg);
     expect(applied.changed).toBe(true);
@@ -29,7 +29,7 @@ describe("applyOpenAICodexModelDefault", () => {
 
   it("does not override openai-codex/*", () => {
     const cfg: ClawdbotConfig = {
-      agents: { defaults: { model: "openai-codex/gpt-5.2" } },
+      agents: { defaults: { model: "openai-codex/gpt-5.4" } },
     };
     const applied = applyOpenAICodexModelDefault(cfg);
     expect(applied.changed).toBe(false);

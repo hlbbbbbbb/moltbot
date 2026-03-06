@@ -8,7 +8,8 @@ import { createConfigIO } from "../config/config.js";
 import { resolveNativeSkillsEnabled } from "../config/commands.js";
 import { resolveOAuthDir } from "../config/paths.js";
 import { formatCliCommand } from "../cli/command-format.js";
-import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { loadWorkspaceSkillEntries } from "../agents/skills.js";
 import type { AgentToolsConfig } from "../config/types.tools.js";
 import { resolveBrowserConfig } from "../browser/config.js";
 import { isToolAllowedByPolicies } from "../agents/pi-tools.policy.js";
@@ -27,6 +28,7 @@ import {
   inspectPathPermissions,
   safeStat,
 } from "./audit-fs.js";
+import { scanDirectoryWithSummary, type SkillScanFinding } from "./skill-scanner.js";
 import type { ExecFn } from "./windows-acl.js";
 
 export type SecurityAuditFinding = {
@@ -604,6 +606,169 @@ export async function collectPluginsTrustFindings(params: {
           : ""),
       remediation: "Set plugins.allow to an explicit list of plugin ids you trust.",
     });
+  }
+
+  return findings;
+}
+
+function isPathInside(basePath: string, candidatePath: string): boolean {
+  const base = path.resolve(basePath);
+  const candidate = path.resolve(candidatePath);
+  const rel = path.relative(base, candidate);
+  return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
+}
+
+function listWorkspaceDirs(cfg: ClawdbotConfig): string[] {
+  const dirs = new Set<string>();
+  const list = cfg.agents?.list;
+  if (Array.isArray(list)) {
+    for (const entry of list) {
+      if (entry && typeof entry === "object" && typeof entry.id === "string") {
+        dirs.add(resolveAgentWorkspaceDir(cfg, entry.id));
+      }
+    }
+  }
+  dirs.add(resolveAgentWorkspaceDir(cfg, resolveDefaultAgentId(cfg)));
+  return [...dirs];
+}
+
+function formatCodeSafetyDetails(findings: SkillScanFinding[], rootDir: string): string {
+  return findings
+    .map((finding) => {
+      const relPath = path.relative(rootDir, finding.file);
+      const filePath =
+        relPath && relPath !== "." && !relPath.startsWith("..")
+          ? relPath
+          : path.basename(finding.file);
+      const normalizedPath = filePath.replaceAll("\\", "/");
+      return `  - [${finding.ruleId}] ${finding.message} (${normalizedPath}:${finding.line})`;
+    })
+    .join("\n");
+}
+
+export async function collectPluginsCodeSafetyFindings(params: {
+  stateDir: string;
+}): Promise<SecurityAuditFinding[]> {
+  const findings: SecurityAuditFinding[] = [];
+  const extensionsDir = path.join(params.stateDir, "extensions");
+  const st = await safeStat(extensionsDir);
+  if (!st.ok || !st.isDir) {
+    return findings;
+  }
+
+  const entries = await fs.readdir(extensionsDir, { withFileTypes: true }).catch(() => []);
+  const pluginDirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  for (const pluginName of pluginDirs) {
+    const pluginPath = path.join(extensionsDir, pluginName);
+    const summary = await scanDirectoryWithSummary(pluginPath).catch((err) => {
+      findings.push({
+        checkId: "plugins.code_safety.scan_failed",
+        severity: "warn",
+        title: `Plugin "${pluginName}" code scan failed`,
+        detail: `Static code scan could not complete: ${String(err)}`,
+        remediation:
+          "Check file permissions and plugin layout, then rerun `clawdbot security audit --deep`.",
+      });
+      return null;
+    });
+    if (!summary) {
+      continue;
+    }
+
+    if (summary.critical > 0) {
+      const criticalFindings = summary.findings.filter(
+        (finding) => finding.severity === "critical",
+      );
+      const details = formatCodeSafetyDetails(criticalFindings, pluginPath);
+      findings.push({
+        checkId: "plugins.code_safety",
+        severity: "critical",
+        title: `Plugin "${pluginName}" contains dangerous code patterns`,
+        detail: `Found ${summary.critical} critical issue(s) in ${summary.scannedFiles} scanned file(s):\n${details}`,
+        remediation:
+          "Review the plugin source code carefully before use. If untrusted, remove the plugin from your state directory.",
+      });
+    } else if (summary.warn > 0) {
+      const warnFindings = summary.findings.filter((finding) => finding.severity === "warn");
+      const details = formatCodeSafetyDetails(warnFindings, pluginPath);
+      findings.push({
+        checkId: "plugins.code_safety",
+        severity: "warn",
+        title: `Plugin "${pluginName}" contains suspicious code patterns`,
+        detail: `Found ${summary.warn} warning(s) in ${summary.scannedFiles} scanned file(s):\n${details}`,
+        remediation: "Review the flagged code to ensure it is intentional and safe.",
+      });
+    }
+  }
+
+  return findings;
+}
+
+export async function collectInstalledSkillsCodeSafetyFindings(params: {
+  cfg: ClawdbotConfig;
+  stateDir: string;
+}): Promise<SecurityAuditFinding[]> {
+  const findings: SecurityAuditFinding[] = [];
+  const pluginExtensionsDir = path.join(params.stateDir, "extensions");
+  const scannedSkillDirs = new Set<string>();
+  const workspaceDirs = listWorkspaceDirs(params.cfg);
+
+  for (const workspaceDir of workspaceDirs) {
+    const entries = loadWorkspaceSkillEntries(workspaceDir, { config: params.cfg });
+    for (const entry of entries) {
+      if (entry.skill.source === "clawdbot-bundled") {
+        continue;
+      }
+
+      const skillDir = path.resolve(entry.skill.baseDir);
+      if (isPathInside(pluginExtensionsDir, skillDir)) {
+        continue;
+      }
+      if (scannedSkillDirs.has(skillDir)) {
+        continue;
+      }
+      scannedSkillDirs.add(skillDir);
+
+      const skillName = entry.skill.name;
+      const summary = await scanDirectoryWithSummary(skillDir).catch((err) => {
+        findings.push({
+          checkId: "skills.code_safety.scan_failed",
+          severity: "warn",
+          title: `Skill "${skillName}" code scan failed`,
+          detail: `Static code scan could not complete for ${skillDir}: ${String(err)}`,
+          remediation:
+            "Check file permissions and skill layout, then rerun `clawdbot security audit --deep`.",
+        });
+        return null;
+      });
+      if (!summary) {
+        continue;
+      }
+
+      if (summary.critical > 0) {
+        const criticalFindings = summary.findings.filter(
+          (finding) => finding.severity === "critical",
+        );
+        const details = formatCodeSafetyDetails(criticalFindings, skillDir);
+        findings.push({
+          checkId: "skills.code_safety",
+          severity: "critical",
+          title: `Skill "${skillName}" contains dangerous code patterns`,
+          detail: `Found ${summary.critical} critical issue(s) in ${summary.scannedFiles} scanned file(s) under ${skillDir}:\n${details}`,
+          remediation: `Review the skill source code before use. If untrusted, remove "${skillDir}".`,
+        });
+      } else if (summary.warn > 0) {
+        const warnFindings = summary.findings.filter((finding) => finding.severity === "warn");
+        const details = formatCodeSafetyDetails(warnFindings, skillDir);
+        findings.push({
+          checkId: "skills.code_safety",
+          severity: "warn",
+          title: `Skill "${skillName}" contains suspicious code patterns`,
+          detail: `Found ${summary.warn} warning(s) in ${summary.scannedFiles} scanned file(s) under ${skillDir}:\n${details}`,
+          remediation: "Review flagged lines to ensure the behavior is intentional and safe.",
+        });
+      }
+    }
   }
 
   return findings;

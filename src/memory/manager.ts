@@ -40,13 +40,15 @@ import {
   normalizeRelPath,
   parseEmbedding,
 } from "./internal.js";
+import type { Episode } from "./episode-memory.js";
+import { formatEpisodeForEmbedding } from "./episode-memory.js";
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import { searchKeyword, searchVector } from "./manager-search.js";
 import { ensureMemoryIndexSchema } from "./memory-schema.js";
 import { requireNodeSqlite } from "./sqlite.js";
 import { loadSqliteVecExtension } from "./sqlite-vec.js";
 
-type MemorySource = "memory" | "sessions";
+type MemorySource = "memory" | "sessions" | "episodes";
 
 export type MemorySearchResult = {
   path: string;
@@ -286,11 +288,38 @@ export class MemoryIndexManager {
       ? await this.searchKeyword(cleaned, candidates).catch(() => [])
       : [];
 
-    const queryVec = await this.embedQueryWithTimeout(cleaned);
-    const hasVector = queryVec.some((v) => v !== 0);
-    const vectorResults = hasVector
-      ? await this.searchVector(queryVec, candidates).catch(() => [])
-      : [];
+    let vectorResults: Array<MemorySearchResult & { id: string }> = [];
+    try {
+      const queryVec = await this.embedQueryWithTimeout(cleaned);
+      const hasVector = queryVec.some((v) => v !== 0);
+      vectorResults = hasVector
+        ? await this.searchVector(queryVec, candidates).catch(() => [])
+        : [];
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const activated = await this.tryActivateFallbackProvider(reason);
+      if (activated) {
+        const fallbackVec = await this.embedQueryWithTimeout(cleaned);
+        const hasVector = fallbackVec.some((v) => v !== 0);
+        vectorResults = hasVector
+          ? await this.searchVector(fallbackVec, candidates).catch(() => [])
+          : [];
+      } else if (hybrid.enabled && keywordResults.length > 0) {
+        log.warn(`memory query embeddings unavailable; using keyword-only search: ${reason}`);
+        return keywordResults.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+      } else {
+        const fallbackKeywordResults = await this.searchKeywordFallback(cleaned, candidates);
+        if (fallbackKeywordResults.length > 0) {
+          log.warn(
+            `memory query embeddings unavailable; using line-based fallback search: ${reason}`,
+          );
+          return fallbackKeywordResults
+            .filter((entry) => entry.score >= minScore)
+            .slice(0, maxResults);
+        }
+        throw err;
+      }
+    }
 
     if (!hybrid.enabled) {
       return vectorResults.filter((entry) => entry.score >= minScore).slice(0, maxResults);
@@ -346,6 +375,73 @@ export class MemoryIndexManager {
       bm25RankToScore,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string; textScore: number });
+  }
+
+  private async searchKeywordFallback(
+    query: string,
+    limit: number,
+  ): Promise<Array<MemorySearchResult & { id: string; textScore: number }>> {
+    if (limit <= 0) return [];
+    const lowered = query.trim().toLowerCase();
+    if (!lowered) return [];
+    const tokens = lowered
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2)
+      .slice(0, 8);
+    const needle = tokens[0] ?? lowered;
+    if (!needle) return [];
+    const sourceFilter = this.buildSourceFilter();
+    const rows = this.db
+      .prepare(
+        `SELECT id, path, source, start_line, end_line, text\n` +
+          `  FROM chunks\n` +
+          ` WHERE model = ?${sourceFilter.sql} AND lower(text) LIKE ?\n` +
+          ` ORDER BY updated_at DESC\n` +
+          ` LIMIT ?`,
+      )
+      .all(
+        this.provider.model,
+        ...sourceFilter.params,
+        `%${needle}%`,
+        Math.max(limit * 8, limit),
+      ) as Array<{
+      id: string;
+      path: string;
+      source: MemorySource;
+      start_line: number;
+      end_line: number;
+      text: string;
+    }>;
+
+    const scored = rows
+      .map((row) => {
+        const textLower = row.text.toLowerCase();
+        if (!textLower.includes(needle)) return null;
+        const hits = tokens.length
+          ? tokens.filter((token) => textLower.includes(token)).length
+          : textLower.includes(lowered)
+            ? 1
+            : 0;
+        const textScore = tokens.length ? hits / tokens.length : hits;
+        if (!Number.isFinite(textScore) || textScore <= 0) return null;
+        return {
+          id: row.id,
+          path: row.path,
+          startLine: row.start_line,
+          endLine: row.end_line,
+          score: textScore,
+          textScore,
+          snippet: row.text.slice(0, SNIPPET_MAX_CHARS),
+          source: row.source,
+        } satisfies MemorySearchResult & { id: string; textScore: number };
+      })
+      .filter((entry): entry is MemorySearchResult & { id: string; textScore: number } =>
+        Boolean(entry),
+      );
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
   }
 
   private mergeHybridResults(params: {
@@ -1246,7 +1342,18 @@ export class MemoryIndexManager {
   }
 
   private shouldFallbackOnError(message: string): boolean {
-    return /embedding|embeddings|batch/i.test(message);
+    return /embedding|embeddings|batch|fetch failed|network|timed?\s*out|econn|enotfound|socket/i.test(
+      message,
+    );
+  }
+
+  private async tryActivateFallbackProvider(reason: string): Promise<boolean> {
+    if (!this.shouldFallbackOnError(reason)) return false;
+    try {
+      return await this.activateFallbackProvider(reason);
+    } catch {
+      return false;
+    }
   }
 
   private resolveBatchConfig(): {
@@ -2185,5 +2292,32 @@ export class MemoryIndexManager {
            size=excluded.size`,
       )
       .run(entry.path, options.source, entry.hash, entry.mtimeMs, entry.size);
+  }
+
+  /**
+   * Index an episode into the search index so it becomes discoverable
+   * via memory_search. Converts the episode to a virtual file entry
+   * and indexes it under source="episodes".
+   */
+  async indexEpisode(episode: Episode): Promise<void> {
+    if (this.closed) return;
+    const content = formatEpisodeForEmbedding(episode);
+    if (!content.trim()) return;
+
+    const virtualPath = `episode:${episode.id}`;
+    const entry: MemoryFileEntry = {
+      path: virtualPath,
+      absPath: virtualPath,
+      mtimeMs: episode.timestamp,
+      size: content.length,
+      hash: hashText(content),
+    };
+
+    try {
+      await this.indexFile(entry, { source: "episodes", content });
+      log.debug(`Indexed episode ${episode.id} into memory search`);
+    } catch (err) {
+      log.warn(`Failed to index episode ${episode.id}: ${String(err)}`);
+    }
   }
 }

@@ -50,8 +50,16 @@ export async function resolveBootstrapContextForRun(params: {
   contextFiles: EmbeddedContextFile[];
 }> {
   const bootstrapFiles = await resolveBootstrapFilesForRun(params);
+  const maxTotalCharsRaw = params.config?.agents?.defaults?.bootstrapMaxTotalChars;
+  const maxTotalChars =
+    typeof maxTotalCharsRaw === "number" &&
+    Number.isFinite(maxTotalCharsRaw) &&
+    maxTotalCharsRaw > 0
+      ? Math.floor(maxTotalCharsRaw)
+      : undefined;
   const contextFiles = buildBootstrapContextFiles(bootstrapFiles, {
     maxChars: resolveBootstrapMaxChars(params.config),
+    maxTotalChars,
     warn: params.warn,
   });
   return { bootstrapFiles, contextFiles };

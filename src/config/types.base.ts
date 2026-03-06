@@ -52,6 +52,7 @@ export type SessionSendPolicyMatch = {
   channel?: string;
   chatType?: NormalizedChatType;
   keyPrefix?: string;
+  rawKeyPrefix?: string;
 };
 export type SessionSendPolicyRule = {
   action: SessionSendPolicyAction;

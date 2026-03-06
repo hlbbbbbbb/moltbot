@@ -23,6 +23,7 @@ import type { NodeHostConfig } from "./types.node-host.js";
 import type { PluginsConfig } from "./types.plugins.js";
 import type { SkillsConfig } from "./types.skills.js";
 import type { ToolsConfig } from "./types.tools.js";
+import type { MemoryConfig } from "./types.memory.js";
 
 export type ClawdbotConfig = {
   meta?: {
@@ -76,6 +77,7 @@ export type ClawdbotConfig = {
   };
   skills?: SkillsConfig;
   plugins?: PluginsConfig;
+  memory?: MemoryConfig;
   models?: ModelsConfig;
   nodeHost?: NodeHostConfig;
   agents?: AgentsConfig;

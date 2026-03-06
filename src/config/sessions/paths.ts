@@ -49,13 +49,50 @@ export function resolveSessionTranscriptPath(
   return path.join(resolveAgentSessionsDir(agentId), fileName);
 }
 
+function inferAgentIdFromSessionFileCandidate(candidate?: string): string | undefined {
+  const raw = candidate?.trim();
+  if (!raw) return undefined;
+  const normalized = path.normalize(raw);
+  const parts = normalized.split(path.sep);
+  const agentsIndex = parts.lastIndexOf("agents");
+  if (agentsIndex < 0) return undefined;
+  const guessedAgentId = parts[agentsIndex + 1]?.trim();
+  const sessionsMarker = parts[agentsIndex + 2];
+  if (!guessedAgentId || sessionsMarker !== "sessions") return undefined;
+  return guessedAgentId;
+}
+
+function inferSessionFileNameFromCandidate(candidate?: string): string | undefined {
+  const raw = candidate?.trim();
+  if (!raw) return undefined;
+  const base = path.basename(path.normalize(raw));
+  if (!base || base === "." || base === "/" || !base.endsWith(".jsonl")) return undefined;
+  return base;
+}
+
 export function resolveSessionFilePath(
   sessionId: string,
   entry?: SessionEntry,
   opts?: { agentId?: string },
 ): string {
   const candidate = entry?.sessionFile?.trim();
-  return candidate ? candidate : resolveSessionTranscriptPath(sessionId, opts?.agentId);
+  const inferredAgentId = opts?.agentId ?? inferAgentIdFromSessionFileCandidate(candidate);
+  const fallbackFileName = inferSessionFileNameFromCandidate(candidate);
+  const fallbackPath = fallbackFileName
+    ? path.join(resolveSessionTranscriptsDirForAgent(inferredAgentId), fallbackFileName)
+    : resolveSessionTranscriptPath(sessionId, inferredAgentId);
+  if (!candidate) return fallbackPath;
+
+  const resolvedCandidate = path.resolve(candidate);
+  const expectedRoot = opts?.agentId
+    ? resolveSessionTranscriptsDirForAgent(opts.agentId)
+    : path.join(resolveStateDir(), "agents");
+  const relative = path.relative(expectedRoot, resolvedCandidate);
+  const withinRoot =
+    relative.length === 0 || (!relative.startsWith("..") && !path.isAbsolute(relative));
+
+  if (!withinRoot) return fallbackPath;
+  return resolvedCandidate;
 }
 
 export function resolveStorePath(store?: string, opts?: { agentId?: string }) {

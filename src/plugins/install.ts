@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { CONFIG_DIR, resolveUserPath } from "../utils.js";
+import { resolvePackageClawdbotManifest } from "./manifest.js";
 import {
   extractArchive,
   fileExists,
@@ -21,6 +22,8 @@ type PackageManifest = {
   version?: string;
   dependencies?: Record<string, string>;
   clawdbot?: { extensions?: string[] };
+  openclaw?: { extensions?: string[] };
+  "openclaw-cn"?: { extensions?: string[] };
 };
 
 export type InstallPluginResult =
@@ -53,13 +56,17 @@ function safeFileName(input: string): string {
 }
 
 async function ensureClawdbotExtensions(manifest: PackageManifest) {
-  const extensions = manifest.clawdbot?.extensions;
+  const extensions = resolvePackageClawdbotManifest(manifest)?.extensions;
   if (!Array.isArray(extensions)) {
-    throw new Error("package.json missing clawdbot.extensions");
+    throw new Error(
+      "package.json missing clawdbot.extensions (or openclaw.extensions / openclaw-cn.extensions)",
+    );
   }
   const list = extensions.map((e) => (typeof e === "string" ? e.trim() : "")).filter(Boolean);
   if (list.length === 0) {
-    throw new Error("package.json clawdbot.extensions is empty");
+    throw new Error(
+      "package.json clawdbot.extensions is empty (or openclaw/openclaw-cn equivalent)",
+    );
   }
   return list;
 }

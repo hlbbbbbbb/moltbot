@@ -1,13 +1,8 @@
 import { Type } from "@sinclair/typebox";
 
 import type { ClawdbotConfig } from "../../config/config.js";
-import {
-  closeDispatcher,
-  createPinnedDispatcher,
-  resolvePinnedHostname,
-  SsrFBlockedError,
-} from "../../infra/net/ssrf.js";
-import type { Dispatcher } from "undici";
+import { fetchWithSsrFGuard } from "../../infra/net/fetch-guard.js";
+import { SsrFBlockedError } from "../../infra/net/ssrf.js";
 import { stringEnum } from "../schema/typebox.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
@@ -164,79 +159,6 @@ function looksLikeHtml(value: string): boolean {
   return head.startsWith("<!doctype html") || head.startsWith("<html");
 }
 
-function isRedirectStatus(status: number): boolean {
-  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
-}
-
-async function fetchWithRedirects(params: {
-  url: string;
-  maxRedirects: number;
-  timeoutSeconds: number;
-  userAgent: string;
-}): Promise<{ response: Response; finalUrl: string; dispatcher: Dispatcher }> {
-  const signal = withTimeout(undefined, params.timeoutSeconds * 1000);
-  const visited = new Set<string>();
-  let currentUrl = params.url;
-  let redirectCount = 0;
-
-  while (true) {
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(currentUrl);
-    } catch {
-      throw new Error("Invalid URL: must be http or https");
-    }
-    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-      throw new Error("Invalid URL: must be http or https");
-    }
-
-    const pinned = await resolvePinnedHostname(parsedUrl.hostname);
-    const dispatcher = createPinnedDispatcher(pinned);
-    let res: Response;
-    try {
-      res = await fetch(parsedUrl.toString(), {
-        method: "GET",
-        headers: {
-          Accept: "*/*",
-          "User-Agent": params.userAgent,
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        signal,
-        redirect: "manual",
-        dispatcher,
-      } as RequestInit);
-    } catch (err) {
-      await closeDispatcher(dispatcher);
-      throw err;
-    }
-
-    if (isRedirectStatus(res.status)) {
-      const location = res.headers.get("location");
-      if (!location) {
-        await closeDispatcher(dispatcher);
-        throw new Error(`Redirect missing location header (${res.status})`);
-      }
-      redirectCount += 1;
-      if (redirectCount > params.maxRedirects) {
-        await closeDispatcher(dispatcher);
-        throw new Error(`Too many redirects (limit: ${params.maxRedirects})`);
-      }
-      const nextUrl = new URL(location, parsedUrl).toString();
-      if (visited.has(nextUrl)) {
-        await closeDispatcher(dispatcher);
-        throw new Error("Redirect loop detected");
-      }
-      visited.add(nextUrl);
-      void res.body?.cancel();
-      await closeDispatcher(dispatcher);
-      currentUrl = nextUrl;
-      continue;
-    }
-
-    return { response: res, finalUrl: currentUrl, dispatcher };
-  }
-}
-
 function formatWebFetchErrorDetail(params: {
   detail: string;
   contentType?: string | null;
@@ -365,18 +287,26 @@ async function runWebFetch(params: {
 
   const start = Date.now();
   let res: Response;
-  let dispatcher: Dispatcher | null = null;
+  let release: (() => Promise<void>) | null = null;
   let finalUrl = params.url;
   try {
-    const result = await fetchWithRedirects({
+    const result = await fetchWithSsrFGuard({
       url: params.url,
       maxRedirects: params.maxRedirects,
-      timeoutSeconds: params.timeoutSeconds,
-      userAgent: params.userAgent,
+      timeoutMs: params.timeoutSeconds * 1000,
+      auditContext: "web_fetch",
+      init: {
+        method: "GET",
+        headers: {
+          Accept: "*/*",
+          "User-Agent": params.userAgent,
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      },
     });
     res = result.response;
     finalUrl = result.finalUrl;
-    dispatcher = result.dispatcher;
+    release = result.release;
   } catch (error) {
     if (error instanceof SsrFBlockedError) {
       throw error;
@@ -519,7 +449,9 @@ async function runWebFetch(params: {
     writeCache(FETCH_CACHE, cacheKey, payload, params.cacheTtlMs);
     return payload;
   } finally {
-    await closeDispatcher(dispatcher);
+    if (release) {
+      await release();
+    }
   }
 }
 

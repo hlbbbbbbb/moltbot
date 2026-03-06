@@ -62,9 +62,14 @@ import {
   sanitizeSessionHistory,
   sanitizeToolsForGoogle,
 } from "../google.js";
-import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "../history.js";
+import {
+  getDmHistoryLimitFromSessionKey,
+  limitHistoryByTokenBudget,
+  limitHistoryTurns,
+} from "../history.js";
 import { log } from "../logger.js";
 import { buildModelAliasLines } from "../model.js";
+import { createEmbeddedResourceLoader } from "../resource-loader.js";
 import {
   clearActiveEmbeddedRun,
   type EmbeddedPiQueueHandle,
@@ -77,7 +82,9 @@ import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "../system
 import { splitSdkTools } from "../tool-split.js";
 import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
 import { buildSystemPromptParams } from "../../system-prompt-params.js";
+import { pruneSessionFileToolResults } from "../../session-tool-result-pruner.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
+import { estimateFullContextTokens } from "../../context-budget.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { isTimeoutError } from "../../failover-error.js";
@@ -424,12 +431,13 @@ export async function runEmbeddedAttempt(
         minReserveTokens: resolveCompactionReserveTokensFloor(params.config),
       });
 
-      const additionalExtensionPaths = buildEmbeddedExtensionPaths({
+      const additionalExtensionPaths = await buildEmbeddedExtensionPaths({
         cfg: params.config,
         sessionManager,
         provider: params.provider,
         modelId: params.modelId,
         model: params.model,
+        agentDir,
       });
 
       const { builtInTools, customTools } = splitSdkTools({
@@ -446,6 +454,13 @@ export async function runEmbeddedAttempt(
         : [];
 
       const allCustomTools = [...customTools, ...clientToolDefs];
+      const resourceLoader = await createEmbeddedResourceLoader({
+        cwd: resolvedWorkspace,
+        agentDir,
+        settingsManager,
+        systemPromptOverride: systemPrompt,
+        additionalExtensionPaths,
+      });
 
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,
@@ -454,14 +469,11 @@ export async function runEmbeddedAttempt(
         modelRegistry: params.modelRegistry,
         model: params.model,
         thinkingLevel: mapThinkingLevel(params.thinkLevel),
-        systemPrompt,
         tools: builtInTools,
         customTools: allCustomTools,
+        resourceLoader,
         sessionManager,
         settingsManager,
-        skills: [],
-        contextFiles: [],
-        additionalExtensionPaths,
       }));
       if (!session) {
         throw new Error("Embedded agent session missing");
@@ -531,10 +543,14 @@ export async function runEmbeddedAttempt(
         const validated = transcriptPolicy.validateAnthropicTurns
           ? validateAnthropicTurns(validatedGemini)
           : validatedGemini;
-        const limited = limitHistoryTurns(
+        const turnLimited = limitHistoryTurns(
           validated,
           getDmHistoryLimitFromSessionKey(params.sessionKey, params.config),
         );
+        // Apply token-based history limit: use 60% of context window for history.
+        const ctxWindow = params.model?.contextWindow;
+        const historyTokenBudget = ctxWindow ? Math.floor(ctxWindow * 0.6) : undefined;
+        const limited = limitHistoryByTokenBudget(turnLimited, historyTokenBudget);
         cacheTrace?.recordStage("session:limited", { messages: limited });
         if (limited.length > 0) {
           activeSession.agent.replaceMessages(limited);
@@ -776,6 +792,30 @@ export async function runEmbeddedAttempt(
             });
           }
 
+          // Pre-flight token check: estimate total context and trigger proactive compaction
+          // before hitting the API, preventing overflow errors entirely.
+          const preflightContextWindow = params.model?.contextWindow;
+          if (preflightContextWindow && preflightContextWindow > 0) {
+            const threshold =
+              (params.config?.agents?.defaults?.proactiveCompactionThreshold ?? 0.85) *
+              preflightContextWindow;
+            const estimate = estimateFullContextTokens({
+              systemPrompt: appendPrompt,
+              messages: activeSession.messages,
+              promptText: effectivePrompt,
+              imageCount: imageResult.images.length,
+            });
+            if (estimate > threshold) {
+              log.warn(
+                `Pre-flight: ${estimate}/${preflightContextWindow} tokens (${((estimate / preflightContextWindow) * 100).toFixed(1)}%); context exceeds ${((threshold / preflightContextWindow) * 100).toFixed(0)}% threshold`,
+              );
+              // Signal overflow so the outer loop in run.ts can attempt compaction
+              throw new Error(
+                `Pre-flight context overflow: estimated ${estimate} tokens exceeds ${Math.round(threshold)} token threshold (context window: ${preflightContextWindow})`,
+              );
+            }
+          }
+
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
           if (imageResult.images.length > 0) {
@@ -808,6 +848,28 @@ export async function runEmbeddedAttempt(
           note: promptError ? "prompt error" : undefined,
         });
         anthropicPayloadLogger?.recordUsage(messagesSnapshot, promptError);
+
+        // Persistently replace old tool results with compact placeholders.
+        // The assistant's reply already contains the key findings, so the raw
+        // tool output is redundant and can be replaced to keep the session small.
+        if (!aborted && !promptError && params.sessionFile) {
+          const pruneConfig = params.config?.agents?.defaults?.persistentPrune;
+          if (pruneConfig?.enabled !== false) {
+            try {
+              const replaced = pruneSessionFileToolResults(params.sessionFile, {
+                keepLastAssistants: pruneConfig?.keepLastAssistants ?? 3,
+                minCharsToReplace: pruneConfig?.minCharsToReplace ?? 500,
+              });
+              if (replaced > 0) {
+                log.debug(
+                  `Pruned ${replaced} old tool result(s) from session. runId=${params.runId} sessionId=${params.sessionId}`,
+                );
+              }
+            } catch (err) {
+              log.warn(`Session tool result pruning failed: ${String(err)}`);
+            }
+          }
+        }
 
         // Run agent_end hooks to allow plugins to analyze the conversation
         // This is fire-and-forget, so we don't await

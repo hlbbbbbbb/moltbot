@@ -121,6 +121,38 @@ describe("installPluginFromArchive", () => {
     expect(fs.existsSync(path.join(result.targetDir, "dist", "index.js"))).toBe(true);
   });
 
+  it("installs packages that declare extensions via openclaw aliases", async () => {
+    const stateDir = makeTempDir();
+    const workDir = makeTempDir();
+    const pkgDir = path.join(workDir, "package");
+    fs.mkdirSync(path.join(pkgDir, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "@openclaw-cn/feishu",
+        version: "0.0.1",
+        openclaw: { extensions: ["./dist/index.js"] },
+      }),
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(pkgDir, "dist", "index.js"), "export {};", "utf-8");
+
+    const archivePath = packToArchive({
+      pkgDir,
+      outDir: workDir,
+      outName: "plugin.tgz",
+    });
+
+    const extensionsDir = path.join(stateDir, "extensions");
+    const { installPluginFromArchive } = await import("./install.js");
+    const result = await installPluginFromArchive({ archivePath, extensionsDir });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pluginId).toBe("feishu");
+    expect(result.targetDir).toBe(path.join(stateDir, "extensions", "feishu"));
+    expect(fs.existsSync(path.join(result.targetDir, "dist", "index.js"))).toBe(true);
+  });
+
   it("rejects installing when plugin already exists", async () => {
     const stateDir = makeTempDir();
     const workDir = makeTempDir();

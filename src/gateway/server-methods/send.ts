@@ -89,6 +89,9 @@ export const sendHandlers: GatewayRequestHandlers = {
     const to = request.to.trim();
     const message = request.message.trim();
     const mediaUrls = Array.isArray(request.mediaUrls) ? request.mediaUrls : undefined;
+    console.log(
+      `[DEBUG-send] mediaUrl=${request.mediaUrl} mediaUrls=${JSON.stringify(mediaUrls)} to=${to} channel=${request.channel}`,
+    );
     const channelInput = typeof request.channel === "string" ? request.channel : undefined;
     const normalizedChannel = channelInput ? normalizeChannelId(channelInput) : null;
     if (channelInput && !normalizedChannel) {

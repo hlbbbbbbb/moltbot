@@ -755,6 +755,25 @@ export function createExecTool(
         throw new Error("Provide a command to start.");
       }
 
+      // Guard: prevent exec from killing the gateway's own process.
+      // The AI may attempt `lsof -ti:PORT | xargs kill` to "free" a port
+      // that the gateway itself is listening on, which kills the gateway.
+      const gatewayPid = process.pid;
+      const selfKillPatterns = [
+        /lsof\b[^|]*\bkill\b/,
+        /lsof\b.*\|\s*xargs\s+kill/,
+        /kill\b.*\$\(lsof\b/,
+        /kill\b.*`lsof\b/,
+        new RegExp(`\\bkill\\s+.*\\b${gatewayPid}\\b`),
+      ];
+      if (selfKillPatterns.some((p) => p.test(params.command))) {
+        throw new Error(
+          `Refused: this command may kill the gateway process (PID ${gatewayPid}). ` +
+            "The gateway listens on ports that would be enumerated by lsof. " +
+            "Do not kill processes by port when running inside the gateway.",
+        );
+      }
+
       const maxOutput = DEFAULT_MAX_OUTPUT;
       const pendingMaxOutput = DEFAULT_PENDING_MAX_OUTPUT;
       const warnings: string[] = [];

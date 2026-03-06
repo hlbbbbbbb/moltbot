@@ -23,10 +23,12 @@ const MEMORY_INDEX_FILE = "memory-index.json";
 const MEMORY_FILE = "MEMORY.md";
 
 // Promotion rules
-const PROMOTION_RECALL_THRESHOLD = 3; // Recall count threshold
+const PROMOTION_RECALL_THRESHOLD = 2; // Recall count threshold (lowered from 3 for faster promotion)
 const PROMOTION_DAYS_WINDOW = 7; // Statistics window (days)
 const DECAY_RATE = 0.1; // ~10% decay per day
 const RECALL_BONUS_FACTOR = 0.5; // Recall bonus coefficient
+/** Items with importance >= this are fast-tracked (1 recall = promote). */
+const FAST_TRACK_IMPORTANCE = 8;
 
 // ========== Type Definitions ==========
 
@@ -93,6 +95,29 @@ function generateMemoryId(): string {
   return `mem-${timestamp}-${random}`;
 }
 
+/**
+ * Compute n-gram (bigram) overlap between two strings.
+ * Returns a value in [0, 1] where 1 means identical bigram sets.
+ */
+function computeNgramOverlap(a: string, b: string): number {
+  const bigramsOf = (s: string): Set<string> => {
+    const normalized = s.toLowerCase().replace(/\s+/g, " ").trim();
+    const bigrams = new Set<string>();
+    for (let i = 0; i < normalized.length - 1; i++) {
+      bigrams.add(normalized.slice(i, i + 2));
+    }
+    return bigrams;
+  };
+  const setA = bigramsOf(a);
+  const setB = bigramsOf(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const bg of setA) {
+    if (setB.has(bg)) intersection++;
+  }
+  return (2 * intersection) / (setA.size + setB.size);
+}
+
 // ========== Core Functions ==========
 
 /**
@@ -150,14 +175,22 @@ export function addMemoryItem(
 ): MemoryItem {
   const index = loadMemoryIndex(workspaceDir);
 
-  // Check if same content already exists
-  const existing = index.items.find((i) => i.content === item.content && i.type === item.type);
+  // Check if same content already exists (exact or near-duplicate via n-gram overlap)
+  const existing = index.items.find(
+    (i) =>
+      i.type === item.type &&
+      (i.content === item.content || computeNgramOverlap(i.content, item.content) > 0.8),
+  );
 
   if (existing) {
     // Update existing memory's importance (take the higher value)
     existing.importance = Math.max(existing.importance, item.importance);
     existing.lastRecalled = Date.now();
     existing.recallCount += 1;
+    // Keep the longer/more detailed content
+    if (item.content.length > existing.content.length) {
+      existing.content = item.content;
+    }
     saveMemoryIndex(workspaceDir, index);
     log.debug(`Updated existing memory: ${existing.id}`);
     return existing;
@@ -261,9 +294,14 @@ export function findPromotionCandidates(
   const index = loadMemoryIndex(workspaceDir);
   const cutoff = Date.now() - daysWindow * 24 * 60 * 60 * 1000;
 
-  return index.items.filter(
-    (item) => !item.promoted && item.recallCount >= recallThreshold && item.createdAt >= cutoff,
-  );
+  return index.items.filter((item) => {
+    if (item.promoted) return false;
+    if (item.createdAt < cutoff) return false;
+    // Fast-track: high-importance items need only 1 recall
+    if (item.importance >= FAST_TRACK_IMPORTANCE && item.recallCount >= 1) return true;
+    // Standard path: need recallThreshold recalls
+    return item.recallCount >= recallThreshold;
+  });
 }
 
 /**
@@ -302,9 +340,11 @@ export function promoteToLongTermMemory(workspaceDir: string, item: MemoryItem):
     return false;
   }
 
-  // Determine section to add to
+  // Determine section to add to (organized by type)
   let section = "## Important Events";
-  if (item.type === "preference") {
+  if (item.type === "keyFact") {
+    section = "## Key Facts";
+  } else if (item.type === "preference") {
     section = "## User Preferences";
   } else if (item.type === "lesson") {
     section = "## Lessons Learned";

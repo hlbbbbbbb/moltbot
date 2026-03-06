@@ -1,4 +1,5 @@
 import { resolveAuthStorePathForDisplay } from "../../agents/auth-profiles.js";
+import type { ModelCatalogEntry } from "../../agents/model-catalog.js";
 import {
   type ModelAliasIndex,
   modelKey,
@@ -276,6 +277,7 @@ export function resolveModelSelectionFromDirective(params: {
   defaultProvider: string;
   defaultModel: string;
   aliasIndex: ModelAliasIndex;
+  modelCatalog: ModelCatalogEntry[];
   allowedModelKeys: Set<string>;
   allowedModelCatalog: Array<{ provider: string; id?: string; name?: string }>;
   provider: string;
@@ -330,6 +332,7 @@ export function resolveModelSelectionFromDirective(params: {
       defaultProvider: params.defaultProvider,
       defaultModel: params.defaultModel,
       aliasIndex: params.aliasIndex,
+      modelCatalog: params.modelCatalog,
       allowedModelKeys: params.allowedModelKeys,
     });
 

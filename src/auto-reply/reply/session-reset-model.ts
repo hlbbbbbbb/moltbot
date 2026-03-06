@@ -122,6 +122,7 @@ export async function applyResetModelOverride(params: {
       defaultProvider: params.defaultProvider,
       defaultModel: params.defaultModel,
       aliasIndex: params.aliasIndex,
+      modelCatalog: catalog,
       allowedModelKeys,
     });
 

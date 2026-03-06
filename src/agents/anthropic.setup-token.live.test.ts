@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 
 import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { isTruthyEnvValue } from "../infra/env.js";
 import {
@@ -21,6 +20,7 @@ import {
 import { getApiKeyForModel, requireApiKey } from "./model-auth.js";
 import { normalizeProviderId, parseModelRef } from "./model-selection.js";
 import { ensureClawdbotModelsJson } from "./models-config.js";
+import { discoverAuthStorage, discoverModels } from "./pi-sdk-discovery.js";
 
 const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.CLAWDBOT_LIVE_TEST);
 const SETUP_TOKEN_RAW = process.env.CLAWDBOT_LIVE_SETUP_TOKEN?.trim() ?? "";

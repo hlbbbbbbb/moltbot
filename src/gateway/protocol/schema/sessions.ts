@@ -102,3 +102,15 @@ export const SessionsCompactParamsSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export const SessionsUsageParamsSchema = Type.Object(
+  {
+    key: Type.Optional(NonEmptyString),
+    startDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+    endDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+    days: Type.Optional(Type.Integer({ minimum: 1 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1 })),
+    includeContextWeight: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);

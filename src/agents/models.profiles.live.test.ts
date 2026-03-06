@@ -1,5 +1,4 @@
 import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../config/config.js";
@@ -13,6 +12,7 @@ import {
 import { isModernModelRef } from "./live-model-filter.js";
 import { getApiKeyForModel, requireApiKey } from "./model-auth.js";
 import { ensureClawdbotModelsJson } from "./models-config.js";
+import { discoverAuthStorage, discoverModels } from "./pi-sdk-discovery.js";
 import { isRateLimitErrorMessage } from "./pi-embedded-helpers/errors.js";
 
 const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.CLAWDBOT_LIVE_TEST);

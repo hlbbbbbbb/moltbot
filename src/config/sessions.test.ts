@@ -409,6 +409,189 @@ describe("sessions", () => {
     }
   });
 
+  it("falls back when sessionFile points outside the current state root", () => {
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = "/custom/state";
+    try {
+      const sessionFile = resolveSessionFilePath(
+        "sess-legacy",
+        {
+          sessionId: "sess-legacy",
+          updatedAt: 1,
+          sessionFile: "/Users/huanglaobanban/.clawdbot/agents/main/sessions/sess-legacy.jsonl",
+        },
+        { agentId: "main" },
+      );
+      expect(sessionFile).toBe(
+        path.join(path.resolve("/custom/state"), "agents", "main", "sessions", "sess-legacy.jsonl"),
+      );
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+    }
+  });
+
+  it("preserves transcript filename when migrating stale absolute sessionFile", () => {
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = "/custom/state";
+    try {
+      const sessionFile = resolveSessionFilePath(
+        "sess-legacy",
+        {
+          sessionId: "sess-legacy",
+          updatedAt: 1,
+          sessionFile: "/Users/huanglaobanban/.clawdbot/agents/main/sessions/branched-legacy.jsonl",
+        },
+        { agentId: "main" },
+      );
+      expect(sessionFile).toBe(
+        path.join(
+          path.resolve("/custom/state"),
+          "agents",
+          "main",
+          "sessions",
+          "branched-legacy.jsonl",
+        ),
+      );
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+    }
+  });
+
+  it("accepts sessionFile under this state root when agent id is omitted", () => {
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = "/custom/state";
+    try {
+      const existingPath = path.join(
+        path.resolve("/custom/state"),
+        "agents",
+        "ops",
+        "sessions",
+        "sess-ops.jsonl",
+      );
+      const sessionFile = resolveSessionFilePath("sess-main", {
+        sessionId: "sess-main",
+        updatedAt: 1,
+        sessionFile: existingPath,
+      });
+      expect(sessionFile).toBe(existingPath);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+    }
+  });
+
+  it("infers agent id from legacy sessionFile when opts.agentId is omitted", () => {
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = "/custom/state";
+    try {
+      const sessionFile = resolveSessionFilePath("sess-legacy", {
+        sessionId: "sess-legacy",
+        updatedAt: 1,
+        sessionFile: "/Users/huanglaobanban/.clawdbot/agents/ops/sessions/legacy.jsonl",
+      });
+      expect(sessionFile).toBe(
+        path.join(path.resolve("/custom/state"), "agents", "ops", "sessions", "legacy.jsonl"),
+      );
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+    }
+  });
+
+  it("normalizes stale sessionFile paths when loading session stores", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-session-paths-"));
+    const sessionsDir = path.join(dir, "agents", "main", "sessions");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          "agent:main:main": {
+            sessionId: "sess-legacy",
+            updatedAt: 1,
+            sessionFile:
+              "/Users/huanglaobanban/.clawdbot/agents/main/sessions/branched-legacy.jsonl",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = dir;
+    try {
+      const store = loadSessionStore(storePath, { skipCache: true });
+      expect(store["agent:main:main"]?.sessionFile).toBe(
+        path.join(dir, "agents", "main", "sessions", "branched-legacy.jsonl"),
+      );
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("persists normalized sessionFile paths when writing session stores", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-session-paths-"));
+    const sessionsDir = path.join(dir, "agents", "main", "sessions");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify(
+        {
+          "agent:main:main": {
+            sessionId: "sess-legacy",
+            updatedAt: 1,
+            sessionFile:
+              "/Users/huanglaobanban/.clawdbot/agents/main/sessions/branched-legacy.jsonl",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const prev = process.env.CLAWDBOT_STATE_DIR;
+    process.env.CLAWDBOT_STATE_DIR = dir;
+    try {
+      await updateSessionStore(storePath, () => undefined);
+      const raw = await fs.readFile(storePath, "utf-8");
+      const persisted = JSON.parse(raw) as Record<string, { sessionFile?: string }>;
+      expect(persisted["agent:main:main"]?.sessionFile).toBe(
+        path.join(dir, "agents", "main", "sessions", "branched-legacy.jsonl"),
+      );
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CLAWDBOT_STATE_DIR;
+      } else {
+        process.env.CLAWDBOT_STATE_DIR = prev;
+      }
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("updateSessionStoreEntry merges concurrent patches", async () => {
     const mainSessionKey = "agent:main:main";
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-sessions-"));

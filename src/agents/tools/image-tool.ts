@@ -8,7 +8,6 @@ import {
   complete,
   type Model,
 } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import type { ClawdbotConfig } from "../../config/config.js";
@@ -21,6 +20,7 @@ import { getApiKeyForModel, requireApiKey, resolveEnvApiKey } from "../model-aut
 import { runWithImageModelFallback } from "../model-fallback.js";
 import { resolveConfiguredModelRef } from "../model-selection.js";
 import { ensureClawdbotModelsJson } from "../models-config.js";
+import { discoverAuthStorage, discoverModels } from "../pi-sdk-discovery.js";
 import { assertSandboxPath } from "../sandbox-paths.js";
 import type { AnyAgentTool } from "./common.js";
 import {

@@ -71,6 +71,8 @@ describe("CronService", () => {
     const jobs = await cron.list({ includeDisabled: true });
     expect(jobs[0]?.state.lastStatus).toBe("skipped");
     expect(jobs[0]?.state.lastError).toMatch(/non-empty/i);
+    expect(jobs[0]?.enabled).toBe(false);
+    expect(jobs[0]?.state.nextRunAtMs).toBeUndefined();
 
     cron.stop();
     await store.cleanup();

@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 import { describe, it } from "vitest";
 import { resolveClawdbotAgentDir } from "../agents/agent-paths.js";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
@@ -22,6 +21,7 @@ import {
 import { isModernModelRef } from "../agents/live-model-filter.js";
 import { getApiKeyForModel } from "../agents/model-auth.js";
 import { ensureClawdbotModelsJson } from "../agents/models-config.js";
+import { discoverAuthStorage, discoverModels } from "../agents/pi-sdk-discovery.js";
 import { loadConfig } from "../config/config.js";
 import type { ClawdbotConfig, ModelProviderConfig } from "../config/types.js";
 import { isTruthyEnvValue } from "../infra/env.js";

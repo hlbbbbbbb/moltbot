@@ -8,6 +8,7 @@ import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 
 let embedBatchCalls = 0;
 let failEmbeddings = false;
+let failQueryEmbeddings = false;
 
 vi.mock("./embeddings.js", () => {
   const embedText = (text: string) => {
@@ -22,7 +23,12 @@ vi.mock("./embeddings.js", () => {
       provider: {
         id: "mock",
         model: options.model ?? "mock-embed",
-        embedQuery: async (text: string) => embedText(text),
+        embedQuery: async (text: string) => {
+          if (failQueryEmbeddings) {
+            throw new Error("mock query embedding failed");
+          }
+          return embedText(text);
+        },
         embedBatch: async (texts: string[]) => {
           embedBatchCalls += 1;
           if (failEmbeddings) {
@@ -43,6 +49,7 @@ describe("memory index", () => {
   beforeEach(async () => {
     embedBatchCalls = 0;
     failEmbeddings = false;
+    failQueryEmbeddings = false;
     workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "clawdbot-mem-"));
     indexPath = path.join(workspaceDir, "index.sqlite");
     await fs.mkdir(path.join(workspaceDir, "memory"));
@@ -252,6 +259,37 @@ describe("memory index", () => {
     if (!status.fts?.available) return;
 
     await manager.sync({ force: true });
+    const results = await manager.search("zebra");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]?.path).toContain("memory/2026-01-12.md");
+  });
+
+  it("falls back to keyword search when query embedding fails", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "mock-embed",
+            store: { path: indexPath, vector: { enabled: false } },
+            sync: { watch: false, onSessionStart: false, onSearch: true },
+            query: {
+              minScore: 0,
+              hybrid: { enabled: true, vectorWeight: 0, textWeight: 1 },
+            },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    };
+    const result = await getMemorySearchManager({ cfg, agentId: "main" });
+    expect(result.manager).not.toBeNull();
+    if (!result.manager) throw new Error("manager missing");
+    manager = result.manager;
+
+    await manager.sync({ force: true });
+    failQueryEmbeddings = true;
     const results = await manager.search("zebra");
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]?.path).toContain("memory/2026-01-12.md");

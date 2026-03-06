@@ -12,6 +12,10 @@ import {
   summarizeInStages,
 } from "../compaction.js";
 import { getCompactionSafeguardRuntime } from "./compaction-safeguard-runtime.js";
+import {
+  buildCompactionInstructions,
+  isStructuredSummary,
+} from "./compaction-structured-summary.js";
 const FALLBACK_SUMMARY =
   "Summary unavailable due to context limits. Older messages were truncated.";
 const TURN_PREFIX_INSTRUCTIONS =
@@ -146,7 +150,10 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
     const toolFailureSection = formatToolFailuresSection(toolFailures);
     const fallbackSummary = `${FALLBACK_SUMMARY}${toolFailureSection}${fileOpsSummary}`;
 
-    const model = ctx.model;
+    const runtime = getCompactionSafeguardRuntime(ctx.sessionManager);
+
+    // Prefer dedicated compaction model (cheaper/faster), fall back to agent model
+    const model = runtime?.compactionModel ?? ctx.model;
     if (!model) {
       return {
         compaction: {
@@ -158,7 +165,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       };
     }
 
-    const apiKey = await ctx.modelRegistry.getApiKey(model);
+    const apiKey = runtime?.compactionApiKey ?? (await ctx.modelRegistry.getApiKey(model));
     if (!apiKey) {
       return {
         compaction: {
@@ -175,8 +182,14 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
       let messagesToSummarize = preparation.messagesToSummarize;
 
-      const runtime = getCompactionSafeguardRuntime(ctx.sessionManager);
       const maxHistoryShare = runtime?.maxHistoryShare ?? 0.5;
+
+      // Seed structured summary from prior compaction if not already in runtime
+      if (!runtime?.previousStructuredSummary && preparation.previousSummary) {
+        if (isStructuredSummary(preparation.previousSummary) && runtime) {
+          runtime.previousStructuredSummary = preparation.previousSummary;
+        }
+      }
 
       const tokensBefore =
         typeof preparation.tokensBefore === "number" && Number.isFinite(preparation.tokensBefore)
@@ -249,9 +262,22 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const maxChunkTokens = Math.max(1, Math.floor(contextWindowTokens * adaptiveRatio));
       const reserveTokens = Math.max(1, Math.floor(preparation.settings.reserveTokens));
 
-      // Feed dropped-messages summary as previousSummary so the main summarization
-      // incorporates context from pruned messages instead of losing it entirely.
-      const effectivePreviousSummary = droppedSummary ?? preparation.previousSummary;
+      // Build incremental structured summary instructions.
+      // If we have a prior structured summary, use the merge prompt;
+      // otherwise use the initial structured prompt.
+      const existingStructured = runtime?.previousStructuredSummary;
+      const incrementalBase = existingStructured ?? droppedSummary;
+      const { customInstructions: structuredInstructions, previousSummary: structuredPrev } =
+        buildCompactionInstructions(incrementalBase);
+
+      // Merge user-provided customInstructions with structured prompt
+      const effectiveInstructions = customInstructions
+        ? `${structuredInstructions}\n\n${customInstructions}`
+        : structuredInstructions;
+
+      // Fall back to preparation.previousSummary only when no structured summary is available
+      const effectivePreviousSummary =
+        structuredPrev ?? droppedSummary ?? preparation.previousSummary;
 
       const historySummary = await summarizeInStages({
         messages: messagesToSummarize,
@@ -261,9 +287,14 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         reserveTokens,
         maxChunkTokens,
         contextWindow: contextWindowTokens,
-        customInstructions,
+        customInstructions: effectiveInstructions,
         previousSummary: effectivePreviousSummary,
       });
+
+      // Persist structured summary for next compaction cycle
+      if (runtime) {
+        runtime.previousStructuredSummary = historySummary;
+      }
 
       let summary = historySummary;
       if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
@@ -289,7 +320,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           summary,
           firstKeptEntryId: preparation.firstKeptEntryId,
           tokensBefore: preparation.tokensBefore,
-          details: { readFiles, modifiedFiles },
+          details: { readFiles, modifiedFiles, structuredSummary: historySummary },
         },
       };
     } catch (error) {

@@ -233,6 +233,30 @@ describe("loadClawdbotPlugins", () => {
     expect(Object.keys(registry.gatewayHandlers)).toContain("allowed.ping");
   });
 
+  it("resolves openclaw plugin-sdk alias for external plugins", () => {
+    process.env.CLAWDBOT_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
+    const plugin = writePlugin({
+      id: "sdk-alias",
+      filename: "sdk-alias.ts",
+      body: `import "openclaw/plugin-sdk";
+export default { id: "sdk-alias", register() {} };`,
+    });
+
+    const registry = loadClawdbotPlugins({
+      cache: false,
+      workspaceDir: plugin.dir,
+      config: {
+        plugins: {
+          load: { paths: [plugin.file] },
+          allow: ["sdk-alias"],
+        },
+      },
+    });
+
+    const loaded = registry.plugins.find((entry) => entry.id === "sdk-alias");
+    expect(loaded?.status).toBe("loaded");
+  });
+
   it("denylist disables plugins even if allowed", () => {
     process.env.CLAWDBOT_BUNDLED_PLUGINS_DIR = "/nonexistent/bundled/plugins";
     const plugin = writePlugin({

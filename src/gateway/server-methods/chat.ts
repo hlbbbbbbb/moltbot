@@ -14,6 +14,7 @@ import {
   type ResponsePrefixContext,
 } from "../../auto-reply/reply/response-prefix-template.js";
 import type { MsgContext } from "../../auto-reply/templating.js";
+import { resolveSessionFilePath } from "../../config/sessions.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 import {
@@ -54,9 +55,16 @@ function resolveTranscriptPath(params: {
   sessionId: string;
   storePath: string | undefined;
   sessionFile?: string;
+  agentId?: string;
 }): string | null {
-  const { sessionId, storePath, sessionFile } = params;
-  if (sessionFile) return sessionFile;
+  const { sessionId, storePath, sessionFile, agentId } = params;
+  if (sessionFile) {
+    return resolveSessionFilePath(
+      sessionId,
+      { sessionId, updatedAt: Date.now(), sessionFile },
+      { agentId },
+    );
+  }
   if (!storePath) return null;
   return path.join(path.dirname(storePath), `${sessionId}.jsonl`);
 }
@@ -88,12 +96,14 @@ function appendAssistantTranscriptMessage(params: {
   sessionId: string;
   storePath: string | undefined;
   sessionFile?: string;
+  agentId?: string;
   createIfMissing?: boolean;
 }): TranscriptAppendResult {
   const transcriptPath = resolveTranscriptPath({
     sessionId: params.sessionId,
     storePath: params.storePath,
     sessionFile: params.sessionFile,
+    agentId: params.agentId,
   });
   if (!transcriptPath) {
     return { ok: false, error: "transcript path not resolved" };
@@ -522,6 +532,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                 sessionId,
                 storePath: latestStorePath,
                 sessionFile: latestEntry?.sessionFile,
+                agentId,
                 createIfMissing: true,
               });
               if (appended.ok) {
@@ -613,17 +624,31 @@ export const chatHandlers: GatewayRequestHandlers = {
     };
 
     // Load session to find transcript file
-    const { storePath, entry } = loadSessionEntry(p.sessionKey);
+    const { cfg, storePath, entry } = loadSessionEntry(p.sessionKey);
     const sessionId = entry?.sessionId;
     if (!sessionId || !storePath) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "session not found"));
       return;
     }
 
-    // Resolve transcript path
-    const transcriptPath = entry?.sessionFile
-      ? entry.sessionFile
-      : path.join(path.dirname(storePath), `${sessionId}.jsonl`);
+    const agentId = resolveSessionAgentId({
+      sessionKey: p.sessionKey,
+      config: cfg,
+    });
+    const transcriptPath = resolveTranscriptPath({
+      sessionId,
+      storePath,
+      sessionFile: entry?.sessionFile,
+      agentId,
+    });
+    if (!transcriptPath) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "transcript path not resolved"),
+      );
+      return;
+    }
 
     if (!fs.existsSync(transcriptPath)) {
       respond(

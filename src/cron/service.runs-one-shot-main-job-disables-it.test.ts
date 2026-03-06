@@ -531,6 +531,70 @@ describe("CronService", () => {
     const jobs = await cron.list({ includeDisabled: true });
     expect(jobs[0]?.state.lastStatus).toBe("skipped");
     expect(jobs[0]?.state.lastError).toMatch(/main job requires/i);
+    expect(jobs[0]?.enabled).toBe(false);
+    expect(jobs[0]?.state.nextRunAtMs).toBeUndefined();
+
+    cron.stop();
+    await store.cleanup();
+  });
+
+  it("skips invalid isolated jobs with systemEvent payloads from disk", async () => {
+    const store = await makeStorePath();
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+
+    const atMs = Date.parse("2025-12-13T00:00:01.000Z");
+    await fs.mkdir(path.dirname(store.storePath), { recursive: true });
+    await fs.writeFile(
+      store.storePath,
+      JSON.stringify({
+        version: 1,
+        jobs: [
+          {
+            id: "job-1",
+            enabled: true,
+            createdAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+            updatedAtMs: Date.parse("2025-12-13T00:00:00.000Z"),
+            schedule: { kind: "at", atMs },
+            sessionTarget: "isolated",
+            wakeMode: "now",
+            payload: { kind: "systemEvent", text: "bad" },
+            state: {},
+          },
+        ],
+      }),
+    );
+
+    const runIsolatedAgentJob = vi.fn(async () => ({ status: "ok" as const }));
+    const cron = new CronService({
+      storePath: store.storePath,
+      cronEnabled: true,
+      log: noopLogger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
+      runIsolatedAgentJob,
+    });
+
+    await cron.start();
+
+    vi.setSystemTime(new Date("2025-12-13T00:00:01.000Z"));
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "Cron (skipped): isolated job requires payload.kind=agentTurn",
+      expect.objectContaining({
+        source: "cron",
+        sourceId: expect.any(String),
+      }),
+    );
+    expect(requestHeartbeatNow).toHaveBeenCalled();
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+
+    const jobs = await cron.list({ includeDisabled: true });
+    expect(jobs[0]?.state.lastStatus).toBe("skipped");
+    expect(jobs[0]?.state.lastError).toMatch(/isolated job requires/i);
+    expect(jobs[0]?.enabled).toBe(false);
+    expect(jobs[0]?.state.nextRunAtMs).toBeUndefined();
 
     cron.stop();
     await store.cleanup();

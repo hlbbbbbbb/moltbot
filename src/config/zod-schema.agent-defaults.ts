@@ -89,6 +89,13 @@ export const AgentDefaultsSchema = z
     compaction: z
       .object({
         mode: z.union([z.literal("default"), z.literal("safeguard")]).optional(),
+        model: z
+          .object({
+            primary: z.string().optional(),
+            fallbacks: z.array(z.string()).optional(),
+          })
+          .strict()
+          .optional(),
         reserveTokensFloor: z.number().int().nonnegative().optional(),
         maxHistoryShare: z.number().min(0.1).max(0.9).optional(),
         memoryFlush: z

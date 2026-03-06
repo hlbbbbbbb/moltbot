@@ -1,5 +1,4 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 
 import { resolveClawdbotAgentDir } from "../../agents/agent-paths.js";
 import type { AuthProfileStore } from "../../agents/auth-profiles.js";
@@ -10,6 +9,7 @@ import {
   resolveEnvApiKey,
 } from "../../agents/model-auth.js";
 import { ensureClawdbotModelsJson } from "../../agents/models-config.js";
+import { discoverAuthStorage, discoverModels } from "../../agents/pi-sdk-discovery.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 import type { ModelRow } from "./list.types.js";
 import { modelKey } from "./shared.js";

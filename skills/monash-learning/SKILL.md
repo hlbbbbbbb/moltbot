@@ -37,12 +37,26 @@ description: Access and browse 一航's Monash University learning platform (Moo
 
 ## 登录方法（Session 过期时）
 
-Monash 使用 Okta SSO，反自动化，必须手动登录：
+Monash 使用 Okta SSO，Lawrence 可以自动完成大部分登录，只需一航配合 MFA 推送确认。
 
+### 自动登录流程：
 1. `browser(action=open, profile=clawd, targetUrl="https://learning.monash.edu/my/")`
 2. 截图确认是否跳到 Okta 登录页
-3. 如果跳了：告知用户"clawd 浏览器窗口（会在桌面弹出）需要登录，注意用**无痕模式窗口**（Ctrl+Shift+N / Cmd+Shift+N）打开 Moodle 登录，普通模式有时候 Okta 会报错"
-4. 用户登录完成后，在已登录的 tab 内用 navigate 跳转到目标课程页
+3. 如果跳了，Lawrence 自己操作：
+   - 清空邮箱框，输入 `yhua0298@student.monash.edu`
+   - 勾选"保持登录"
+   - 点"下一步"
+   - 输入密码（见 MEMORY.md）
+   - 点"验证"
+4. MFA 页面：**选"获取推送通知"**（一航偏好，不要用验证码）
+5. 截图读取屏幕上的数字，发给一航
+6. 一航在手机 Okta Verify 上点对应数字完成验证
+7. 等待几秒后确认登录成功，navigate 到目标页面
+
+### 注意事项：
+- checkbox 可能不能直接 click，改点旁边的文字 label
+- 登录成功后在**同一个 tab 内 navigate**，不要 open 新 tab（会触发二次验证）
+- 如果 clawd 浏览器服务没响应，先 `gateway restart` 再试
 - Dashboard shows the **Timeline** (upcoming DDLs) and **Calendar** — great for quick overview
 - Course pages show weekly sections with readings, quizzes, and assignments
 - For detailed assignment instructions, click through to the assignment/quiz page

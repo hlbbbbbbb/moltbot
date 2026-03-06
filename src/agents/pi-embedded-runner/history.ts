@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
+import { estimateMessageTokens } from "../context-budget.js";
 import type { ClawdbotConfig } from "../../config/config.js";
 
 const THREAD_SUFFIX_REGEX = /^(.*)(?::(?:thread|topic):\d+)$/i;
@@ -29,6 +30,32 @@ export function limitHistoryTurns(
         return messages.slice(lastUserIndex);
       }
       lastUserIndex = i;
+    }
+  }
+  return messages;
+}
+
+/**
+ * Limits conversation history to fit within a token budget.
+ * Walks from the newest message backward; once accumulated tokens exceed
+ * `maxTokens`, older messages are dropped.
+ *
+ * Should be applied *after* `limitHistoryTurns()` so turn limits are
+ * respected first, then the token budget further trims if needed.
+ */
+export function limitHistoryByTokenBudget(
+  messages: AgentMessage[],
+  maxTokens: number | undefined,
+): AgentMessage[] {
+  if (!maxTokens || maxTokens <= 0 || messages.length === 0) return messages;
+
+  let accumulated = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tokens = estimateMessageTokens(messages[i]);
+    accumulated += tokens;
+    if (accumulated > maxTokens) {
+      // Keep messages from i+1 onward
+      return messages.slice(i + 1);
     }
   }
   return messages;

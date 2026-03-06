@@ -65,6 +65,7 @@ import { createGatewayRuntimeState } from "./server-runtime-state.js";
 import { hasConnectedMobileNode } from "./server-mobile-nodes.js";
 import { resolveSessionKeyForRun } from "./server-session-key.js";
 import { startGatewaySidecars } from "./server-startup.js";
+import { startGatewayMemoryBackend } from "./server-startup-memory.js";
 import { logGatewayStartup } from "./server-startup-log.js";
 import { startGatewayTailscaleExposure } from "./server-tailscale.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
@@ -407,6 +408,14 @@ export async function startGatewayServer(
   });
 
   let heartbeatRunner = startHeartbeatRunner({ cfg: cfgAtStart });
+
+  void startGatewayMemoryBackend({
+    cfg: cfgAtStart,
+    log: {
+      info: (msg) => log.info(msg),
+      warn: (msg) => log.warn(msg),
+    },
+  }).catch((err) => log.warn(`gateway memory startup failed: ${String(err)}`));
 
   void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
 

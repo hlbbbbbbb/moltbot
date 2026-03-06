@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { resolveConfigDir, resolveUserPath } from "../utils.js";
 import { resolveBundledPluginsDir } from "./bundled-dir.js";
-import type { ClawdbotPackageManifest, PackageManifest } from "./manifest.js";
+import {
+  resolvePackageClawdbotManifest,
+  type ClawdbotPackageManifest,
+  type PackageManifest,
+} from "./manifest.js";
 import type { PluginDiagnostic, PluginOrigin } from "./types.js";
 
 const EXTENSION_EXTS = new Set([".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"]);
@@ -44,7 +48,7 @@ function readPackageManifest(dir: string): PackageManifest | null {
 }
 
 function resolvePackageExtensions(manifest: PackageManifest): string[] {
-  const raw = manifest.clawdbot?.extensions;
+  const raw = resolvePackageClawdbotManifest(manifest)?.extensions;
   if (!Array.isArray(raw)) return [];
   return raw.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter(Boolean);
 }
@@ -93,7 +97,7 @@ function addCandidate(params: {
     packageVersion: manifest?.version?.trim() || undefined,
     packageDescription: manifest?.description?.trim() || undefined,
     packageDir: params.packageDir,
-    packageClawdbot: manifest?.clawdbot,
+    packageClawdbot: resolvePackageClawdbotManifest(manifest),
   });
 }
 

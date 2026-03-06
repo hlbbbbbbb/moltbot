@@ -47,6 +47,8 @@ export type SessionCostSummary = CostUsageTotals & {
   lastActivity?: number;
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const emptyTotals = (): CostUsageTotals => ({
   input: 0,
   output: 0,
@@ -170,14 +172,22 @@ async function scanUsageFile(params: {
 
 export async function loadCostUsageSummary(params?: {
   days?: number;
+  startMs?: number;
+  endMs?: number;
   config?: ClawdbotConfig;
   agentId?: string;
 }): Promise<CostUsageSummary> {
-  const days = Math.max(1, Math.floor(params?.days ?? 30));
+  const requestedDays = Math.max(1, Math.floor(params?.days ?? 30));
+  const endTime =
+    typeof params?.endMs === "number" && Number.isFinite(params.endMs)
+      ? Math.floor(params.endMs)
+      : Date.now();
+  const startTime =
+    typeof params?.startMs === "number" && Number.isFinite(params.startMs)
+      ? Math.floor(params.startMs)
+      : endTime - (requestedDays - 1) * DAY_MS;
+  const days = Math.max(1, Math.ceil((endTime - startTime + 1) / DAY_MS));
   const now = new Date();
-  const since = new Date(now);
-  since.setDate(since.getDate() - (days - 1));
-  const sinceTime = since.getTime();
 
   const dailyMap = new Map<string, CostUsageTotals>();
   const totals = emptyTotals();
@@ -192,7 +202,7 @@ export async function loadCostUsageSummary(params?: {
           const filePath = path.join(sessionsDir, entry.name);
           const stats = await fs.promises.stat(filePath).catch(() => null);
           if (!stats) return null;
-          if (stats.mtimeMs < sinceTime) return null;
+          if (stats.mtimeMs < startTime) return null;
           return filePath;
         }),
     )
@@ -204,7 +214,7 @@ export async function loadCostUsageSummary(params?: {
       config: params?.config,
       onEntry: (entry) => {
         const ts = entry.timestamp?.getTime();
-        if (!ts || ts < sinceTime) return;
+        if (!ts || ts < startTime || ts > endTime) return;
         const dayKey = formatDayKey(entry.timestamp ?? now);
         const bucket = dailyMap.get(dayKey) ?? emptyTotals();
         applyUsageTotals(bucket, entry.usage);
@@ -234,6 +244,8 @@ export async function loadSessionCostSummary(params: {
   sessionEntry?: SessionEntry;
   sessionFile?: string;
   config?: ClawdbotConfig;
+  startMs?: number;
+  endMs?: number;
 }): Promise<SessionCostSummary | null> {
   const sessionFile =
     params.sessionFile ??
@@ -247,9 +259,15 @@ export async function loadSessionCostSummary(params: {
     filePath: sessionFile,
     config: params.config,
     onEntry: (entry) => {
+      const ts = entry.timestamp?.getTime();
+      if (typeof params.startMs === "number" && ts && ts < params.startMs) {
+        return;
+      }
+      if (typeof params.endMs === "number" && ts && ts > params.endMs) {
+        return;
+      }
       applyUsageTotals(totals, entry.usage);
       applyCostTotal(totals, entry.costTotal);
-      const ts = entry.timestamp?.getTime();
       if (ts && (!lastActivity || ts > lastActivity)) {
         lastActivity = ts;
       }

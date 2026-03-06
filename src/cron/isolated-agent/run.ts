@@ -44,7 +44,7 @@ import type { ClawdbotConfig } from "../../config/config.js";
 import {
   loadSessionStore,
   resolveAgentMainSessionKey,
-  resolveSessionTranscriptPath,
+  resolveSessionFilePath,
   resolveStorePath,
   updateSessionStore,
 } from "../../config/sessions.js";
@@ -143,9 +143,9 @@ function readRecentMainSessionContext(params: { cfg: ClawdbotConfig; agentId: st
     const mainEntry = store[mainSessionKey];
     if (!mainEntry?.sessionId) return [];
 
-    const transcriptPath =
-      mainEntry.sessionFile?.trim() ||
-      resolveSessionTranscriptPath(mainEntry.sessionId, params.agentId);
+    const transcriptPath = resolveSessionFilePath(mainEntry.sessionId, mainEntry, {
+      agentId: params.agentId,
+    });
     if (!transcriptPath || !fs.existsSync(transcriptPath)) return [];
 
     const stat = fs.statSync(transcriptPath);
@@ -494,11 +494,12 @@ export async function runCronIsolatedAgentTurn(params: {
   let fallbackProvider = provider;
   let fallbackModel = model;
   try {
-    const persistedSessionFile = cronSession.sessionEntry.sessionFile?.trim();
-    const sessionFile =
-      persistedSessionFile ||
-      resolveSessionTranscriptPath(cronSession.sessionEntry.sessionId, agentId);
-    if (!persistedSessionFile) {
+    const sessionFile = resolveSessionFilePath(
+      cronSession.sessionEntry.sessionId,
+      cronSession.sessionEntry,
+      { agentId },
+    );
+    if (cronSession.sessionEntry.sessionFile !== sessionFile) {
       cronSession.sessionEntry.sessionFile = sessionFile;
     }
     const resolvedVerboseLevel =

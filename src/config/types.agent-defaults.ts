@@ -128,6 +128,21 @@ export type AgentDefaultsConfig = {
   cliBackends?: Record<string, CliBackendConfig>;
   /** Opt-in: prune old tool results from the LLM context to reduce token usage. */
   contextPruning?: AgentContextPruningConfig;
+  /** Max chars for a single tool result before truncation (default: 100000). */
+  toolResultMaxChars?: number;
+  /** Proactive compaction trigger threshold as fraction of context window (default: 0.85). */
+  proactiveCompactionThreshold?: number;
+  /** Persistent tool result pruning: replace old tool results in session files with placeholders. */
+  persistentPrune?: {
+    /** Enable/disable persistent pruning (default: true). */
+    enabled?: boolean;
+    /** Number of recent assistant messages whose tool results are protected (default: 3). */
+    keepLastAssistants?: number;
+    /** Minimum chars in a tool result to be worth replacing (default: 500). */
+    minCharsToReplace?: number;
+  };
+  /** Max total chars for all bootstrap files combined (default: 60000). */
+  bootstrapMaxTotalChars?: number;
   /** Compaction tuning and pre-compaction memory flush behavior. */
   compaction?: AgentCompactionConfig;
   /** Vector memory search configuration (per-agent overrides supported). */
@@ -242,6 +257,8 @@ export type AgentCompactionMode = "default" | "safeguard";
 export type AgentCompactionConfig = {
   /** Compaction summarization mode. */
   mode?: AgentCompactionMode;
+  /** Dedicated model for compaction summarization (provider/model). Falls back to agent model if unset. */
+  model?: AgentModelListConfig;
   /** Minimum reserve tokens enforced for Pi compaction (0 disables the floor). */
   reserveTokensFloor?: number;
   /** Max share of context window for history during safeguard pruning (0.1–0.9, default 0.5). */

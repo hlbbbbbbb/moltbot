@@ -73,6 +73,9 @@ export async function handleDirectiveOnly(params: {
   defaultProvider: string;
   defaultModel: string;
   aliasIndex: ModelAliasIndex;
+  modelCatalog: Awaited<
+    ReturnType<typeof import("../../agents/model-catalog.js").loadModelCatalog>
+  >;
   allowedModelKeys: Set<string>;
   allowedModelCatalog: Awaited<
     ReturnType<typeof import("../../agents/model-catalog.js").loadModelCatalog>
@@ -98,6 +101,7 @@ export async function handleDirectiveOnly(params: {
     defaultProvider,
     defaultModel,
     aliasIndex,
+    modelCatalog,
     allowedModelKeys,
     allowedModelCatalog,
     resetModelOverride,
@@ -143,6 +147,7 @@ export async function handleDirectiveOnly(params: {
     defaultProvider,
     defaultModel,
     aliasIndex,
+    modelCatalog,
     allowedModelKeys,
     allowedModelCatalog,
     provider,

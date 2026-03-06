@@ -132,4 +132,15 @@ export type PackageManifest = {
   version?: string;
   description?: string;
   clawdbot?: ClawdbotPackageManifest;
+  openclaw?: ClawdbotPackageManifest;
+  "openclaw-cn"?: ClawdbotPackageManifest;
 };
+
+export function resolvePackageClawdbotManifest(
+  manifest: PackageManifest | null | undefined,
+): ClawdbotPackageManifest | undefined {
+  if (!manifest) {
+    return undefined;
+  }
+  return manifest.clawdbot ?? manifest.openclaw ?? manifest["openclaw-cn"];
+}

@@ -12,10 +12,13 @@ export default function contextPruningExtension(api: ExtensionAPI): void {
     if (runtime.settings.mode === "cache-ttl") {
       const ttlMs = runtime.settings.ttlMs;
       const lastTouch = runtime.lastCacheTouchAt ?? null;
-      if (!lastTouch || ttlMs <= 0) {
+      if (ttlMs <= 0) {
         return undefined;
       }
-      if (ttlMs > 0 && Date.now() - lastTouch < ttlMs) {
+      // Skip pruning only when cache is still fresh (lastTouch exists and TTL hasn't expired).
+      // When lastTouch is null (first invocation), always run pruning to prevent overflow
+      // from large initial tool results that haven't been pruned yet.
+      if (lastTouch && Date.now() - lastTouch < ttlMs) {
         return undefined;
       }
     }

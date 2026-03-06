@@ -27,6 +27,92 @@ const NodeHostSchema = z
   .strict()
   .optional();
 
+const MemoryQmdPathSchema = z
+  .object({
+    path: z.string(),
+    name: z.string().optional(),
+    pattern: z.string().optional(),
+  })
+  .strict();
+
+const MemoryQmdSessionSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    exportDir: z.string().optional(),
+    retentionDays: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const MemoryQmdUpdateSchema = z
+  .object({
+    interval: z.string().optional(),
+    debounceMs: z.number().int().nonnegative().optional(),
+    onBoot: z.boolean().optional(),
+    waitForBootSync: z.boolean().optional(),
+    embedInterval: z.string().optional(),
+    commandTimeoutMs: z.number().int().positive().optional(),
+    updateTimeoutMs: z.number().int().positive().optional(),
+    embedTimeoutMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const MemoryQmdLimitsSchema = z
+  .object({
+    maxResults: z.number().int().positive().optional(),
+    maxSnippetChars: z.number().int().positive().optional(),
+    maxInjectedChars: z.number().int().positive().optional(),
+    timeoutMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const MemorySessionSendPolicySchema = z
+  .object({
+    default: z.union([z.literal("allow"), z.literal("deny")]).optional(),
+    rules: z
+      .array(
+        z
+          .object({
+            action: z.union([z.literal("allow"), z.literal("deny")]),
+            match: z
+              .object({
+                channel: z.string().optional(),
+                chatType: z
+                  .union([z.literal("direct"), z.literal("group"), z.literal("channel")])
+                  .optional(),
+                keyPrefix: z.string().optional(),
+                rawKeyPrefix: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict();
+
+const MemoryQmdSchema = z
+  .object({
+    command: z.string().optional(),
+    searchMode: z.union([z.literal("query"), z.literal("search"), z.literal("vsearch")]).optional(),
+    includeDefaultMemory: z.boolean().optional(),
+    paths: z.array(MemoryQmdPathSchema).optional(),
+    sessions: MemoryQmdSessionSchema.optional(),
+    update: MemoryQmdUpdateSchema.optional(),
+    limits: MemoryQmdLimitsSchema.optional(),
+    scope: MemorySessionSendPolicySchema.optional(),
+  })
+  .strict();
+
+const MemorySchema = z
+  .object({
+    backend: z.union([z.literal("builtin"), z.literal("qmd")]).optional(),
+    citations: z.union([z.literal("auto"), z.literal("on"), z.literal("off")]).optional(),
+    qmd: MemoryQmdSchema.optional(),
+  })
+  .strict()
+  .optional();
+
 export const ClawdbotSchema = z
   .object({
     meta: z
@@ -206,6 +292,7 @@ export const ClawdbotSchema = z
       })
       .strict()
       .optional(),
+    memory: MemorySchema,
     models: ModelsConfigSchema,
     nodeHost: NodeHostSchema,
     agents: AgentsSchema,

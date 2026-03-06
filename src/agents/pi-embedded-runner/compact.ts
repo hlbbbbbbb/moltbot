@@ -61,6 +61,7 @@ import { getDmHistoryLimitFromSessionKey, limitHistoryTurns } from "./history.js
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { buildModelAliasLines, resolveModel } from "./model.js";
+import { createEmbeddedResourceLoader } from "./resource-loader.js";
 import { buildEmbeddedSandboxInfo } from "./sandbox-info.js";
 import { prewarmSessionFile, trackSessionManagerAccess } from "./session-manager-cache.js";
 import { buildEmbeddedSystemPrompt, createSystemPromptOverride } from "./system-prompt.js";
@@ -370,17 +371,26 @@ export async function compactEmbeddedPiSessionDirect(
         settingsManager,
         minReserveTokens: resolveCompactionReserveTokensFloor(params.config),
       });
-      const additionalExtensionPaths = buildEmbeddedExtensionPaths({
+      const additionalExtensionPaths = await buildEmbeddedExtensionPaths({
         cfg: params.config,
         sessionManager,
         provider,
         modelId,
         model,
+        agentDir,
+        authProfileId: params.authProfileId,
       });
 
       const { builtInTools, customTools } = splitSdkTools({
         tools,
         sandboxEnabled: !!sandbox?.enabled,
+      });
+      const resourceLoader = await createEmbeddedResourceLoader({
+        cwd: resolvedWorkspace,
+        agentDir,
+        settingsManager,
+        systemPromptOverride: systemPrompt,
+        additionalExtensionPaths,
       });
 
       let session: Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -391,14 +401,11 @@ export async function compactEmbeddedPiSessionDirect(
         modelRegistry,
         model,
         thinkingLevel: mapThinkingLevel(params.thinkLevel),
-        systemPrompt,
         tools: builtInTools,
         customTools,
+        resourceLoader,
         sessionManager,
         settingsManager,
-        skills: [],
-        contextFiles: [],
-        additionalExtensionPaths,
       }));
 
       try {

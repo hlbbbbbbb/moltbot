@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import type { ClawdbotConfig } from "../../config/config.js";
 import {
   loadSessionStore,
-  resolveSessionTranscriptPath,
+  resolveSessionFilePath,
   resolveStorePath,
   type SessionEntry,
 } from "../../config/sessions.js";
@@ -27,8 +27,9 @@ export function resolveCronSession(params: {
   const sessionEntry: SessionEntry = {
     ...(entry ?? {}),
     sessionId,
-    sessionFile:
-      entry?.sessionFile?.trim() || resolveSessionTranscriptPath(sessionId, params.agentId),
+    sessionFile: resolveSessionFilePath(sessionId, entry, {
+      agentId: params.agentId,
+    }),
     updatedAt: params.nowMs,
     systemSent,
   };

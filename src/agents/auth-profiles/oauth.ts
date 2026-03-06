@@ -1,4 +1,8 @@
-import { getOAuthApiKey, type OAuthCredentials, type OAuthProvider } from "@mariozechner/pi-ai";
+import {
+  getOAuthApiKey,
+  type OAuthCredentials,
+  type OAuthProvider,
+} from "@mariozechner/pi-ai/oauth";
 import lockfile from "proper-lockfile";
 import { ProxyAgent } from "undici";
 

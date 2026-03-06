@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
+vi.mock("../pi-sdk-discovery.js", () => ({
   discoverAuthStorage: mocks.discoverAuthStorage,
   discoverModels: mocks.discoverModels,
 }));

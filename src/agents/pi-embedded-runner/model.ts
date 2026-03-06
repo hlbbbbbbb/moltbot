@@ -1,5 +1,4 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { discoverAuthStorage, discoverModels } from "@mariozechner/pi-coding-agent";
 
 import type { ClawdbotConfig } from "../../config/config.js";
 import type { ModelDefinitionConfig } from "../../config/types.js";
@@ -7,6 +6,12 @@ import { resolveClawdbotAgentDir } from "../agent-paths.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
 import { normalizeModelCompat } from "../model-compat.js";
 import { normalizeProviderId } from "../model-selection.js";
+import {
+  discoverAuthStorage,
+  discoverModels,
+  type DiscoveredAuthStorage,
+  type DiscoveredModelRegistry,
+} from "../pi-sdk-discovery.js";
 
 type InlineModelEntry = ModelDefinitionConfig & { provider: string };
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -45,12 +50,17 @@ function buildAnthropicSonnet46FallbackModel(modelId: string): Model<Api> {
 }
 
 export function buildInlineProviderModels(
-  providers: Record<string, { models?: ModelDefinitionConfig[] }>,
+  providers: Record<string, { models?: ModelDefinitionConfig[]; api?: string; baseUrl?: string }>,
 ): InlineModelEntry[] {
   return Object.entries(providers).flatMap(([providerId, entry]) => {
     const trimmed = providerId.trim();
     if (!trimmed) return [];
-    return (entry?.models ?? []).map((model) => ({ ...model, provider: trimmed }));
+    return (entry?.models ?? []).map((model) => ({
+      ...model,
+      provider: trimmed,
+      api: model.api ?? (entry?.api as ModelDefinitionConfig["api"]),
+      baseUrl: (model as Record<string, unknown>).baseUrl ?? entry?.baseUrl,
+    })) as InlineModelEntry[];
   });
 }
 
@@ -77,8 +87,8 @@ export function resolveModel(
 ): {
   model?: Model<Api>;
   error?: string;
-  authStorage: ReturnType<typeof discoverAuthStorage>;
-  modelRegistry: ReturnType<typeof discoverModels>;
+  authStorage: DiscoveredAuthStorage;
+  modelRegistry: DiscoveredModelRegistry;
 } {
   const resolvedAgentDir = agentDir ?? resolveClawdbotAgentDir();
   const authStorage = discoverAuthStorage(resolvedAgentDir);

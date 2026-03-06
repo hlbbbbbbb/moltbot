@@ -14,6 +14,7 @@ import {
 import type { MsgContext } from "../../auto-reply/templating.js";
 import { deriveSessionMetaPatch } from "./metadata.js";
 import { mergeSessionEntry, type SessionEntry } from "./types.js";
+import { resolveSessionFilePath } from "./paths.js";
 
 // ============================================================================
 // Session Store Cache with TTL Support
@@ -78,12 +79,39 @@ function normalizeSessionEntryDelivery(entry: SessionEntry): SessionEntry {
   };
 }
 
-function normalizeSessionStore(store: Record<string, SessionEntry>): void {
+function inferAgentIdFromStorePath(storePath: string): string | undefined {
+  const normalized = path.normalize(storePath);
+  const parts = normalized.split(path.sep);
+  const agentsIndex = parts.lastIndexOf("agents");
+  if (agentsIndex < 0) return undefined;
+  const agentId = parts[agentsIndex + 1]?.trim();
+  const sessionsMarker = parts[agentsIndex + 2];
+  if (!agentId || sessionsMarker !== "sessions") return undefined;
+  return agentId;
+}
+
+function normalizeSessionStore(
+  store: Record<string, SessionEntry>,
+  opts?: { agentId?: string },
+): void {
   for (const [key, entry] of Object.entries(store)) {
     if (!entry) continue;
-    const normalized = normalizeSessionEntryDelivery(entry);
-    if (normalized !== entry) {
-      store[key] = normalized;
+    const deliveryNormalized = normalizeSessionEntryDelivery(entry);
+    const currentSessionFile = deliveryNormalized.sessionFile?.trim();
+    const resolvedSessionFile =
+      currentSessionFile &&
+      typeof deliveryNormalized.sessionId === "string" &&
+      deliveryNormalized.sessionId.trim()
+        ? resolveSessionFilePath(deliveryNormalized.sessionId, deliveryNormalized, {
+            agentId: opts?.agentId,
+          })
+        : undefined;
+    const hasSessionFileUpdate =
+      typeof resolvedSessionFile === "string" && resolvedSessionFile !== currentSessionFile;
+    if (deliveryNormalized !== entry || hasSessionFileUpdate) {
+      store[key] = hasSessionFileUpdate
+        ? { ...deliveryNormalized, sessionFile: resolvedSessionFile }
+        : deliveryNormalized;
     }
   }
 }
@@ -149,6 +177,9 @@ export function loadSessionStore(
     }
   }
 
+  const inferredAgentId = inferAgentIdFromStorePath(storePath);
+  normalizeSessionStore(store, { agentId: inferredAgentId });
+
   // Cache the result if caching is enabled
   if (!opts.skipCache && isSessionStoreCacheEnabled()) {
     SESSION_STORE_CACHE.set(storePath, {
@@ -181,7 +212,7 @@ async function saveSessionStoreUnlocked(
   // Invalidate cache on write to ensure consistency
   invalidateSessionStoreCache(storePath);
 
-  normalizeSessionStore(store);
+  normalizeSessionStore(store, { agentId: inferAgentIdFromStorePath(storePath) });
 
   await fs.promises.mkdir(path.dirname(storePath), { recursive: true });
   const json = JSON.stringify(store, null, 2);

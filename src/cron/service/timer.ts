@@ -180,6 +180,9 @@ export async function executeJob(
           kind === "systemEvent"
             ? "main job requires non-empty systemEvent text"
             : 'main job requires payload.kind="systemEvent"',
+          undefined,
+          undefined,
+          { finalizeOneShot: true },
         );
         return;
       }
@@ -233,7 +236,13 @@ export async function executeJob(
     }
 
     if (job.payload.kind !== "agentTurn") {
-      await finish("skipped", "isolated job requires payload.kind=agentTurn");
+      await finish(
+        "skipped",
+        "isolated job requires payload.kind=agentTurn",
+        undefined,
+        undefined,
+        { finalizeOneShot: true },
+      );
       return;
     }
 

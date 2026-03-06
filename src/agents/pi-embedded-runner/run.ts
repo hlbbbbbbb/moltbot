@@ -12,7 +12,9 @@ import {
 } from "../auth-profiles.js";
 import { createEpisodeFromRunResult } from "../../memory/episode-memory.js";
 import { addMemoryItem } from "../../memory/memory-consolidation.js";
+import { MemoryIndexManager } from "../../memory/manager.js";
 import { getMemoryScheduler } from "../../memory/memory-scheduler.js";
+import { processExtractedMemories } from "../memory-extraction.js";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
   CONTEXT_WINDOW_WARN_BELOW_TOKENS,
@@ -671,6 +673,14 @@ export async function runEmbeddedPiAgent(
                 context: contextParts.length > 0 ? contextParts.join(" | ") : undefined,
               });
 
+              // Index episode into the vector/FTS search index (fire-and-forget)
+              // so episodes become discoverable via memory_search.
+              if (params.config) {
+                MemoryIndexManager.get({ cfg: params.config, agentId })
+                  .then((manager) => manager?.indexEpisode(episode))
+                  .catch((err) => log.warn(`Failed to index episode: ${String(err)}`));
+              }
+
               // Initialize scheduler for this agent (if not already running)
               const scheduler = getMemoryScheduler({
                 agentId,
@@ -685,6 +695,20 @@ export async function runEmbeddedPiAgent(
           } catch (episodeErr) {
             log.warn(`Failed to record episode: ${String(episodeErr)}`);
           }
+
+          // Auto-extract memorable items from user messages (fire-and-forget).
+          // Uses regex/heuristics — no LLM call, zero latency impact.
+          processExtractedMemories({
+            userMessages: [params.prompt],
+            storeMemoryFn: async (text, type, importance) => {
+              addMemoryItem(params.workspaceDir, {
+                content: text,
+                type: type as "keyFact" | "preference" | "lesson",
+                importance,
+                source: "auto-extraction",
+              });
+            },
+          }).catch((err) => log.debug(`Memory extraction: ${String(err)}`));
 
           return {
             payloads: payloads.length ? payloads : undefined,

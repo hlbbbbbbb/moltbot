@@ -3,6 +3,7 @@ import type { SessionManager } from "@mariozechner/pi-coding-agent";
 
 import { makeMissingToolResult } from "./session-transcript-repair.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
+import { capToolResultContentSync, DEFAULT_TOOL_RESULT_MAX_CHARS } from "./tool-result-cap.js";
 
 type ToolCall = { id: string; name?: string };
 
@@ -49,6 +50,11 @@ export function installSessionToolResultGuard(
      * Defaults to true.
      */
     allowSyntheticToolResults?: boolean;
+    /**
+     * Max chars for a single tool result before truncation.
+     * Defaults to DEFAULT_TOOL_RESULT_MAX_CHARS (100K).
+     */
+    toolResultMaxChars?: number;
   },
 ): {
   flushPendingToolResults: () => void;
@@ -57,12 +63,19 @@ export function installSessionToolResultGuard(
   const originalAppend = sessionManager.appendMessage.bind(sessionManager);
   const pending = new Map<string, string | undefined>();
 
+  const maxChars = opts?.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
+
   const persistToolResult = (
     message: AgentMessage,
     meta: { toolCallId?: string; toolName?: string; isSynthetic?: boolean },
   ) => {
+    // Cap oversized tool results before persistence to prevent context overflow.
+    let capped = message;
+    if (message.role === "toolResult" && !meta.isSynthetic) {
+      capped = capToolResultMessage(message, meta, maxChars);
+    }
     const transformer = opts?.transformToolResultForPersistence;
-    return transformer ? transformer(message, meta) : message;
+    return transformer ? transformer(capped, meta) : capped;
   };
 
   const allowSyntheticToolResults = opts?.allowSyntheticToolResults ?? true;
@@ -141,4 +154,33 @@ export function installSessionToolResultGuard(
     flushPendingToolResults,
     getPendingIds: () => Array.from(pending.keys()),
   };
+}
+
+/** Cap tool result text blocks that exceed maxChars. */
+function capToolResultMessage(
+  message: AgentMessage,
+  meta: { toolCallId?: string; toolName?: string },
+  maxChars: number,
+): AgentMessage {
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return message;
+
+  let changed = false;
+  const newContent = content.map((block: Record<string, unknown>) => {
+    if (block?.type !== "text" || typeof block.text !== "string") return block;
+    const text = block.text as string;
+    if (text.length <= maxChars) return block;
+
+    const result = capToolResultContentSync({
+      content: text,
+      toolName: meta.toolName ?? "unknown",
+      toolCallId: meta.toolCallId ?? "unknown",
+      maxChars,
+    });
+    if (!result.wasCapped) return block;
+    changed = true;
+    return { ...block, text: result.content };
+  });
+
+  return changed ? ({ ...message, content: newContent } as unknown as AgentMessage) : message;
 }

@@ -1,4 +1,4 @@
-import { loginOpenAICodex } from "@mariozechner/pi-ai";
+import { loginOpenAICodex } from "@mariozechner/pi-ai/oauth";
 import { resolveEnvApiKey } from "../agents/model-auth.js";
 import { upsertSharedEnvVar } from "../infra/env-file.js";
 import { isRemoteEnvironment } from "./oauth-env.js";
@@ -110,7 +110,7 @@ export async function applyAuthChoiceOpenAI(
       const creds = await loginOpenAICodex({
         onAuth,
         onPrompt,
-        onProgress: (msg) => spin.update(msg),
+        onProgress: (msg: string) => spin.update(msg),
       });
       spin.stop("OpenAI OAuth complete");
       if (creds) {
