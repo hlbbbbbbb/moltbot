@@ -296,6 +296,13 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         runtime.previousStructuredSummary = historySummary;
       }
 
+      const compactionModelName = model.id ?? "unknown";
+      const isIncremental = !!existingStructured;
+      console.warn(
+        `📦 已压缩总结上下文 | model=${compactionModelName} mode=${isIncremental ? "incremental-merge" : "initial"} ` +
+          `summarized=${messagesToSummarize.length}条消息 summary=${historySummary.length}字符`,
+      );
+
       let summary = historySummary;
       if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
         const prefixSummary = await summarizeInStages({
