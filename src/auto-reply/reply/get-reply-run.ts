@@ -269,11 +269,7 @@ export async function runPreparedReply(
   );
   // Keep per-session metadata out of the system prompt to preserve Anthropic prefix caching.
   // inboundMetaPrompt is prepended to the user message instead (see baseBodyForPrompt below).
-  const extraSystemPromptParts = [
-    groupChatContext,
-    groupIntro,
-    groupSystemPrompt,
-  ].filter(Boolean);
+  const extraSystemPromptParts = [groupChatContext, groupIntro, groupSystemPrompt].filter(Boolean);
   const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
   // Use CommandBody/RawBody for bare reset detection (clean message without structural context).
   const rawBodyTrimmed = (ctx.CommandBody ?? ctx.RawBody ?? ctx.Body ?? "").trim();
