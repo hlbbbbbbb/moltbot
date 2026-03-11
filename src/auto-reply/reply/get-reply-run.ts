@@ -298,14 +298,12 @@ export async function runPreparedReply(
         }
       : { ...sessionCtx, ThreadStarterBody: undefined },
   );
-  const baseBodyForPrompt = isBareSessionReset
-    ? [inboundMetaPrompt, baseBodyFinal].filter(Boolean).join("\n\n")
-    : [inboundMetaPrompt, inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
-  const baseBodyTrimmed = baseBodyForPrompt.trim();
   const hasMediaAttachment = Boolean(
     sessionCtx.MediaPath || (sessionCtx.MediaPaths && sessionCtx.MediaPaths.length > 0),
   );
-  if (!baseBodyTrimmed && !hasMediaAttachment) {
+  // Guard against empty inbound messages *before* prepending system-generated metadata,
+  // so that inboundMetaPrompt alone doesn't mask a truly empty user message.
+  if (!baseBodyTrimmedRaw && !hasMediaAttachment) {
     await typing.onReplyStart();
     logVerbose("Inbound body empty after normalization; skipping agent run");
     typing.cleanup();
@@ -313,6 +311,10 @@ export async function runPreparedReply(
       text: "I didn't receive any text in your message. Please resend or add a caption.",
     };
   }
+  const baseBodyForPrompt = isBareSessionReset
+    ? [inboundMetaPrompt, baseBodyFinal].filter(Boolean).join("\n\n")
+    : [inboundMetaPrompt, inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
+  const baseBodyTrimmed = baseBodyForPrompt.trim();
   // When the user sends media without text, provide a minimal body so the agent
   // run proceeds and the image/document is injected by the embedded runner.
   const effectiveBaseBody = baseBodyTrimmed
