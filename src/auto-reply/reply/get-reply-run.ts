@@ -303,7 +303,7 @@ export async function runPreparedReply(
       : { ...sessionCtx, ThreadStarterBody: undefined },
   );
   const baseBodyForPrompt = isBareSessionReset
-    ? baseBodyFinal
+    ? [inboundMetaPrompt, baseBodyFinal].filter(Boolean).join("\n\n")
     : [inboundMetaPrompt, inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
   const baseBodyTrimmed = baseBodyForPrompt.trim();
   const hasMediaAttachment = Boolean(
