@@ -1713,6 +1713,8 @@ export async function runEmbeddedAttempt(
             `runId=${params.runId} sessionId=${params.sessionId}`,
         );
         runAbortController.abort(new Error("session lock force-released by watchdog"));
+        // Also abort the active session to stop in-flight streaming/tool execution.
+        void session?.abort();
       },
     });
 
@@ -1756,6 +1758,7 @@ export async function runEmbeddedAttempt(
               `runId=${params.runId} sessionId=${params.sessionId}`,
           );
           runAbortController.abort(new Error("session lock lost during write"));
+          void session?.abort();
         },
       });
 
