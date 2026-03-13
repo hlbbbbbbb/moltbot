@@ -30,13 +30,18 @@ export function installSessionWriteGuard(params: {
 
   // Track whether the guard has been disposed.
   let disposed = false;
+  // Ensure onLockLost fires at most once to avoid duplicate log/abort calls.
+  let lockLostNotified = false;
 
   function assertLockHeld(): void {
     if (disposed) {
       return;
     }
     if (!isSessionLockHeld(sessionFile)) {
-      onLockLost?.();
+      if (!lockLostNotified) {
+        lockLostNotified = true;
+        onLockLost?.();
+      }
       throw new Error(
         `[session-write-guard] write rejected: session lock no longer held for ${sessionFile}`,
       );

@@ -1702,10 +1702,6 @@ export async function runEmbeddedAttempt(
     const systemPromptOverride = createSystemPromptOverride(appendPrompt);
     let systemPromptText = systemPromptOverride();
 
-    // AbortController for lock-loss: when the watchdog force-releases the session lock,
-    // signal the agent run to stop so it doesn't continue writing to the session file.
-    const lockLossController = new AbortController();
-
     const sessionLock = await acquireSessionWriteLock({
       sessionFile: params.sessionFile,
       maxHoldMs: resolveSessionLockMaxHoldFromTimeout({
@@ -1716,7 +1712,7 @@ export async function runEmbeddedAttempt(
           `[attempt] session lock force-released by watchdog, aborting run: ` +
             `runId=${params.runId} sessionId=${params.sessionId}`,
         );
-        lockLossController.abort(new Error("session lock force-released by watchdog"));
+        runAbortController.abort(new Error("session lock force-released by watchdog"));
       },
     });
 
@@ -1759,7 +1755,7 @@ export async function runEmbeddedAttempt(
             `[attempt] write guard detected lock loss, aborting: ` +
               `runId=${params.runId} sessionId=${params.sessionId}`,
           );
-          lockLossController.abort(new Error("session lock lost during write"));
+          runAbortController.abort(new Error("session lock lost during write"));
         },
       });
 
